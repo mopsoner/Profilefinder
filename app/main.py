@@ -174,8 +174,14 @@ def worker(jid,types,max_results,rings):
                 try:
                     reviews=client.reviews(pid)
                     photos=client.photos(pid,10)
+                    cached_photos=[]
+                    for photo in photos:
+                        item=dict(photo)
+                        try: item["media_uri"]=client.photo_media(photo["name"],800,800)
+                        except Exception: item["media_uri"]=None
+                        cached_photos.append(item)
                     lead.reviews_json=json.dumps(reviews,ensure_ascii=False)
-                    lead.photos_json=json.dumps(photos,ensure_ascii=False)
+                    lead.photos_json=json.dumps(cached_photos,ensure_ascii=False)
                     lead.media_cached_at=datetime.utcnow()
                     if reviews:
                         try:
