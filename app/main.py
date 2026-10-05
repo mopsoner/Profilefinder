@@ -377,6 +377,38 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
             db.rollback()
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
 
+@app.get("/sites",response_class=HTMLResponse)
+def sites(request:Request,db:Session=Depends(get_db)):
+    generated=db.execute(select(LeadWebsite,Lead).join(Lead,Lead.id==LeadWebsite.lead_id).order_by(LeadWebsite.updated_at.desc())).all()
+    generated_ids={row[0].lead_id for row in generated}
+    candidates=db.scalars(select(Lead).where(Lead.website.is_(None)).order_by(Lead.score.desc(),Lead.reviews_count.desc()).limit(100)).all()
+    candidates=[x for x in candidates if x.id not in generated_ids]
+    return tpl.TemplateResponse(request,"sites.html",{"generated":generated,"candidates":candidates})
+
+@app.post("/sites/{lead_id}/generate")
+def sites_generate(lead_id:int,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return RedirectResponse("/sites",303)
+    try: insights=json.loads(lead.insights_json or "{}")
+    except (TypeError,json.JSONDecodeError): insights={}
+    try:
+        content=generate_lead_website(lead,insights)
+        row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+        if row:
+            row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
+        else:
+            db.add(LeadWebsite(lead_id=lead_id,content_json=json.dumps(content,ensure_ascii=False),model=settings().openai_model))
+        db.commit()
+    except Exception: db.rollback()
+    return RedirectResponse("/sites",303)
+
+@app.post("/sites/{lead_id}/delete")
+def sites_delete(lead_id:int,db:Session=Depends(get_db)):
+    row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+    if row:
+        db.delete(row); db.commit()
+    return RedirectResponse("/sites",303)
+
 @app.get("/leads/{lead_id}/web",response_class=HTMLResponse)
 def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
