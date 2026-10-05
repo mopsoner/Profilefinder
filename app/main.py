@@ -199,8 +199,15 @@ def api_resolve_commune(code:str):
         return {"ok":False,"error":str(exc)}
 
 @app.post("/search")
-def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...),radius:int=Form(1000),business_types:list[str]=Form(...),max_results:int=Form(20),rings:int=Form(1),postal_codes:str=Form(""),db:Session=Depends(get_db)):
-    postal_list=[x.strip() for x in postal_codes.split(",") if re.fullmatch(r"\\d{5}",x.strip())]
+def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...),radius:int=Form(1000),business_types:list[str]=Form(...),max_results:int=Form(20),rings:int=Form(1),postal_codes:str=Form(""),commune_code:str=Form(""),db:Session=Depends(get_db)):
+    postal_list=[]
+    if commune_code:
+        try:
+            commune=get_or_resolve_commune(commune_code)
+            postal_list=[str(x) for x in (commune.get("postal_codes") or []) if re.fullmatch(r"\\d{5}",str(x))]
+        except Exception: postal_list=[]
+    if not postal_list:
+        postal_list=[x.strip() for x in postal_codes.split(",") if re.fullmatch(r"\\d{5}",x.strip())]
     job=Job(city=city,latitude=latitude,longitude=longitude,radius=radius,types=json.dumps(business_types),max_results=max_results,rings=rings,postal_codes=json.dumps(postal_list)); db.add(job); db.commit(); db.refresh(job)
     threading.Thread(target=worker,args=(job.id,business_types,max_results,rings),daemon=True).start()
     return RedirectResponse("/jobs",303)
