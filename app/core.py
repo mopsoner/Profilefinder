@@ -21,4 +21,8 @@ def normalize_phone(raw):
     return digits if 8 <= len(digits) <= 15 else None
 
 def score(reviews, website, phone):
-    return (2 if reviews == 0 else 0) + (2 if not website else 0) + (1 if phone else 0)
+    reviews=max(0,reviews or 0)
+    # Commercial priority: an established business with social proof but no
+    # website is a stronger website prospect than a business with no reviews.
+    review_points=min(5,reviews // 10)
+    return (10 if not website else 0) + review_points + (1 if phone else 0)
