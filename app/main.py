@@ -10,7 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .communes import get_communes,get_or_resolve_commune,initialize_communes,force_resolve_commune,commune_stats
+from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -109,22 +109,30 @@ def ops(request:Request,db:Session=Depends(get_db)):
     running=sum(1 for x in rows if x.status=="running")
     failed=sum(1 for x in rows if x.status=="failed")
     completed=sum(1 for x in rows if x.status=="completed")
-    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now,"communes":get_communes(),"commune_stats":commune_stats()})
+    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now,"communes":get_communes(),"departments":get_departments(),"commune_stats":commune_stats()})
 
-@app.post("/ops/communes/initialize")
-def ops_initialize_communes():
-    threading.Thread(target=initialize_communes,daemon=True,name="commune-init-manual").start()
+@app.post("/ops/departments")
+def ops_add_department(department_code:str=Form(...)):
+    try:
+        dep=add_department(department_code)
+        threading.Thread(target=initialize_department,args=(dep["code"],),daemon=True,name=f'department-init-{dep["code"]}').start()
+    except Exception: pass
     return RedirectResponse("/ops#communes",303)
 
-@app.post("/ops/communes/{code}/sync")
-def ops_sync_commune(code:str):
-    try: force_resolve_commune(code)
+@app.post("/ops/departments/{department_code}/initialize")
+def ops_initialize_department(department_code:str):
+    threading.Thread(target=initialize_department,args=(department_code,),daemon=True,name=f'department-init-{department_code}').start()
+    return RedirectResponse("/ops#communes",303)
+
+@app.post("/ops/departments/{department_code}/communes/{code}/sync")
+def ops_sync_commune(department_code:str,code:str):
+    try: force_resolve_commune(code,department_code)
     except Exception: pass
     return RedirectResponse("/ops#communes",303)
 
 @app.get("/api/ops/communes")
 def api_ops_communes():
-    return {"stats":commune_stats(),"communes":get_communes()}
+    return {"stats":commune_stats(),"departments":get_departments()}
 
 @app.get("/api/ops/logs")
 def api_ops_logs():
