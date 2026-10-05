@@ -30,6 +30,9 @@ with engine.begin() as conn:
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
         if "insights_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_at DATETIME"))
+        if "photos_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN photos_json TEXT"))
+        if "reviews_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN reviews_json TEXT"))
+        if "media_cached_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN media_cached_at DATETIME"))
 # Recalculate legacy lead scores whenever the scoring strategy changes.
 with SessionLocal() as score_db:
     for score_lead in score_db.scalars(select(Lead)).all():
@@ -168,6 +171,18 @@ def worker(jid,types,max_results,rings):
                 except Exception: pass
                 lead=Lead(place_id=pid,google_activity_at=google_activity_at,**values)
                 db.add(lead); db.flush()
+                try:
+                    reviews=client.reviews(pid)
+                    photos=client.photos(pid,10)
+                    lead.reviews_json=json.dumps(reviews,ensure_ascii=False)
+                    lead.photos_json=json.dumps(photos,ensure_ascii=False)
+                    lead.media_cached_at=datetime.utcnow()
+                    if reviews:
+                        try:
+                            lead.insights_json=json.dumps(build_insights(lead,reviews),ensure_ascii=False)
+                            lead.insights_at=datetime.utcnow()
+                        except Exception: pass
+                except Exception: pass
             if not db.scalar(select(JobLead).where(JobLead.job_id==jid,JobLead.lead_id==lead.id)):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
             return True
@@ -375,19 +390,10 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
     jobs=db.scalars(select(Job).join(JobLead,JobLead.job_id==Job.id).where(JobLead.lead_id==lead_id).order_by(Job.id.desc())).all()
-    photos=[]; reviews=[]
-    places=Places()
-    try: photos=places.photos(lead.place_id,10)
-    except Exception: pass
-    try: reviews=places.reviews(lead.place_id)
-    except Exception: pass
-    if reviews and not lead.insights_json:
-        try:
-            lead.insights_json=json.dumps(build_insights(lead,reviews),ensure_ascii=False)
-            lead.insights_at=datetime.utcnow()
-            db.commit()
-        except Exception:
-            db.rollback()
+    try: photos=json.loads(lead.photos_json or "[]")
+    except (TypeError,json.JSONDecodeError): photos=[]
+    try: reviews=json.loads(lead.reviews_json or "[]")
+    except (TypeError,json.JSONDecodeError): reviews=[]
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
 
 @app.get("/sites",response_class=HTMLResponse)
