@@ -36,6 +36,7 @@ def startup_initialize_reference_data():
     threading.Thread(target=initialize_communes,daemon=True,name="commune-init").start()
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 tpl=Jinja2Templates(directory="app/templates")
+tpl.env.filters["from_json"]=lambda value: json.loads(value or "{}")
 TYPE_CATEGORIES={
 "Restauration & boissons":["restaurant","african_restaurant","caribbean_restaurant","french_restaurant","italian_restaurant","chinese_restaurant","indian_restaurant","japanese_restaurant","korean_restaurant","thai_restaurant","mexican_restaurant","mediterranean_restaurant","seafood_restaurant","pizza_restaurant","fast_food_restaurant","hamburger_restaurant","sandwich_shop","sushi_restaurant","steak_house","vegan_restaurant","vegetarian_restaurant","bakery","cafe","coffee_shop","bar","cocktail_bar","pub","sports_bar","wine_bar","juice_shop","ice_cream_shop","dessert_shop","meal_takeaway","meal_delivery"],
 "Beauté & bien-être":["barber_shop","beautician","beauty_salon","hair_care","hair_salon","makeup_artist","nail_salon","massage","massage_spa","skin_care_clinic","spa","tanning_studio","wellness_center","yoga_studio"],
