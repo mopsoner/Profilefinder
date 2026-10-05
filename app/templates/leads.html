@@ -1,1 +1,36 @@
-{% extends 'base.html' %}{% block content %}<div class="head"><h1>Prospects</h1><a class="button" href="/export.csv">Exporter CSV</a></div><form class="filters"><input name="q" value="{{q}}" placeholder="Nom ou adresse"><input name="min_score" type="number" min="0" max="5" value="{{min_score}}"><button>Filtrer</button></form><table><tr><th>Photo</th><th>Nom</th><th>Type</th><th>Ville</th><th>Telephone</th><th>Avis</th><th>Note</th><th>Score</th><th>WhatsApp</th></tr>{% for x in rows %}<tr><td><a href="/leads/{{x.id}}" class="lead-thumb"><img src="/api/leads/{{x.id}}/photos/0" alt="" loading="lazy" onerror="this.parentElement.classList.add('no-photo');this.style.display='none'"></a></td><td><a class="lead-link" href="/leads/{{x.id}}">{{x.name}}</a></td><td>{{x.business_type}}</td><td>{{x.city}}</td><td>{{x.phone}}</td><td>{{x.reviews_count}}</td><td>{{x.rating or '-'}}</td><td><b>{{x.score}}</b></td><td><a target="_blank" href="{{x.whatsapp_url}}">Ouvrir</a></td></tr>{% endfor %}</table>{% endblock %}
+{% extends 'base.html' %}{% block content %}
+<div class="head"><div><h1>Prospects</h1><p class="muted"><span id="visible-count">{{rows|length}}</span> prospect(s) affiché(s)</p></div><a class="button" href="/export.csv">Exporter CSV</a></div>
+<div class="prospect-toolbar"><input id="global-filter" type="search" placeholder="Rechercher dans toutes les colonnes…"><button type="button" class="secondary" id="clear-filters">Effacer les filtres</button></div>
+<div class="ops-panel"><table id="prospects-table">
+<thead>
+<tr><th>Photo</th><th class="sortable" data-col="1" data-type="text">Nom</th><th class="sortable" data-col="2" data-type="text">Type</th><th class="sortable" data-col="3" data-type="text">Ville</th><th class="sortable" data-col="4" data-type="text">Téléphone</th><th class="sortable" data-col="5" data-type="number">Avis</th><th class="sortable" data-col="6" data-type="number">Note</th><th class="sortable" data-col="7" data-type="number">Score</th><th>WhatsApp</th></tr>
+<tr class="column-filters"><th></th><th><input data-col="1" placeholder="Nom"></th><th><input data-col="2" placeholder="Type"></th><th><input data-col="3" placeholder="Ville"></th><th><input data-col="4" placeholder="Téléphone"></th><th><input data-col="5" placeholder="Avis"></th><th><input data-col="6" placeholder="Note"></th><th><input data-col="7" placeholder="Score"></th><th><input data-col="8" placeholder="WhatsApp"></th></tr>
+</thead>
+<tbody>{% for x in rows %}<tr><td><a href="/leads/{{x.id}}" class="lead-thumb"><img src="/api/leads/{{x.id}}/photos/0" alt="" loading="lazy" onerror="this.parentElement.classList.add('no-photo');this.style.display='none'"></a></td><td><a class="lead-link" href="/leads/{{x.id}}">{{x.name}}</a></td><td>{{x.business_type}}</td><td>{{x.city}}</td><td>{{x.phone}}</td><td>{{x.reviews_count}}</td><td>{{x.rating if x.rating is not none else '-'}}</td><td><b>{{x.score}}</b></td><td><a target="_blank" href="{{x.whatsapp_url}}">Ouvrir</a></td></tr>{% endfor %}</tbody>
+</table></div>
+<script>
+(()=>{
+ const table=document.getElementById('prospects-table'), tbody=table.tBodies[0], rows=()=>Array.from(tbody.rows);
+ const global=document.getElementById('global-filter'), filters=Array.from(document.querySelectorAll('.column-filters input')), count=document.getElementById('visible-count');
+ const norm=v=>(v||'').toLocaleLowerCase('fr').trim();
+ function apply(){
+   const q=norm(global.value); let visible=0;
+   rows().forEach(row=>{
+     const all=norm(Array.from(row.cells).slice(1).map(c=>c.innerText).join(' '));
+     const columns=filters.every(input=>!norm(input.value)||norm(row.cells[+input.dataset.col]?.innerText).includes(norm(input.value)));
+     const show=(!q||all.includes(q))&&columns; row.hidden=!show; if(show) visible++;
+   }); count.textContent=visible;
+ }
+ global.addEventListener('input',apply); filters.forEach(x=>x.addEventListener('input',apply));
+ document.getElementById('clear-filters').addEventListener('click',()=>{global.value='';filters.forEach(x=>x.value='');apply()});
+ document.querySelectorAll('th.sortable').forEach(th=>th.addEventListener('click',()=>{
+   const col=+th.dataset.col,type=th.dataset.type,asc=th.dataset.dir!=='asc';
+   document.querySelectorAll('th.sortable').forEach(x=>{if(x!==th){delete x.dataset.dir;x.classList.remove('sort-asc','sort-desc')}});
+   th.dataset.dir=asc?'asc':'desc';th.classList.toggle('sort-asc',asc);th.classList.toggle('sort-desc',!asc);
+   const value=row=>{const s=row.cells[col].innerText.trim();if(type==='number'){const n=parseFloat(s.replace(',','.'));return Number.isNaN(n)?-Infinity:n}return norm(s)};
+   rows().sort((a,b)=>{const av=value(a),bv=value(b);return (av<bv?-1:av>bv?1:0)*(asc?1:-1)}).forEach(r=>tbody.appendChild(r));
+   apply();
+ }));
+})();
+</script>
+{% endblock %}
