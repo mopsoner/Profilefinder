@@ -235,6 +235,18 @@ def job_detail(job_id:int,request:Request,db:Session=Depends(get_db)):
     try: business_types=json.loads(job.types or "[]")
     except (TypeError,json.JSONDecodeError): business_types=[]
     leads=db.scalars(select(Lead).join(JobLead,JobLead.lead_id==Lead.id).where(JobLead.job_id==job_id).order_by(Lead.score.desc(),Lead.id.desc())).all()
+    try:
+        job_postal_codes={str(x) for x in json.loads(job.postal_codes or "[]") if re.fullmatch(r"\\d{5}",str(x))}
+    except (TypeError,json.JSONDecodeError):
+        job_postal_codes=set()
+    # Job results are scoped to the postal code(s) captured by the request.
+    # A missing or different postal code is never displayed when the request has a postal filter.
+    if job_postal_codes:
+        def matches_job_postal_code(lead):
+            address=lead.address or ""
+            address_postal_codes=set(re.findall(r"(?<!\\d)\\d{5}(?!\\d)",address))
+            return bool(address_postal_codes & job_postal_codes)
+        leads=[lead for lead in leads if matches_job_postal_code(lead)]
     progress=None
     if job.status=="completed": progress=100
     elif job.error and job.error.startswith("PROGRESS:"):
@@ -245,7 +257,7 @@ def job_detail(job_id:int,request:Request,db:Session=Depends(get_db)):
     if job.started_at:
         end=job.finished_at or datetime.utcnow()
         duration=max(0,round((end-job.started_at).total_seconds()))
-    return tpl.TemplateResponse(request,"job_detail.html",{"job":job,"leads":leads,"business_types":business_types,"progress":progress,"duration":duration})
+    return tpl.TemplateResponse(request,"job_detail.html",{"job":job,"leads":leads,"business_types":business_types,"progress":progress,"duration":duration,"job_postal_codes":sorted(job_postal_codes)})
 
 @app.get("/ops",response_class=HTMLResponse)
 def ops(request:Request,db:Session=Depends(get_db)):
