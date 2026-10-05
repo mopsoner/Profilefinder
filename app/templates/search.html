@@ -1,6 +1,32 @@
 {% extends 'base.html' %}{% block content %}
 <h1>Nouvelle recherche</h1>
-<form method="post" class="panel"><label>Ville<input name="city" required></label><div class="grid"><label>Latitude<input name="latitude" type="number" step="any" required></label><label>Longitude<input name="longitude" type="number" step="any" required></label><label>Rayon (m)<input name="radius" type="number" value="1000"></label><label>Anneaux de grille<input name="rings" type="number" min="0" max="5" value="1"></label><label>Max / appel<input name="max_results" type="number" min="1" max="20" value="20"></label></div><h3>Types d'entreprise</h3><div class="checks">{% for x in types %}<label><input type="checkbox" name="business_types" value="{{x}}"> {{x}}</label>{% endfor %}</div><button>Lancer la recherche</button></form>
+<form method="post" class="panel" id="search-form">
+<h3>Zone de recherche</h3>
+<div class="mode-switch">
+<label><input type="radio" name="location_mode" value="commune" checked> Commune de Guadeloupe</label>
+<label><input type="radio" name="location_mode" value="custom"> Coordonnées personnalisées</label>
+</div>
+<div id="commune-mode">
+<label>Commune<select id="commune-select"><option value="">Choisir une commune…</option>{% for c in communes %}<option value="{{c.code}}" data-name="{{c.name}}" data-lat="{{c.latitude if c.latitude is not none else ''}}" data-lng="{{c.longitude if c.longitude is not none else ''}}">{{c.name}} ({{c.code}})</option>{% endfor %}</select></label>
+<p class="muted" id="commune-info">Sélectionne une commune : son centre géographique sera utilisé pour la recherche.</p>
+</div>
+<div class="grid">
+<label>Ville<input id="city" name="city" required></label>
+<label>Latitude<input id="latitude" name="latitude" type="number" step="any" required></label>
+<label>Longitude<input id="longitude" name="longitude" type="number" step="any" required></label>
+<label>Rayon (m)<input name="radius" type="number" value="1000"></label>
+<label>Anneaux de grille<input name="rings" type="number" min="0" max="5" value="1"></label>
+<label>Max / appel<input name="max_results" type="number" min="1" max="20" value="20"></label>
+</div>
+<h3>Types d'entreprise</h3><div class="checks">{% for x in types %}<label><input type="checkbox" name="business_types" value="{{x}}"> {{x}}</label>{% endfor %}</div><button>Lancer la recherche</button></form>
+<script>
+(function(){
+const radios=document.querySelectorAll('input[name="location_mode"]'), box=document.getElementById('commune-mode'), select=document.getElementById('commune-select'), city=document.getElementById('city'), lat=document.getElementById('latitude'), lng=document.getElementById('longitude'), info=document.getElementById('commune-info');
+function mode(){const isCommune=document.querySelector('input[name="location_mode"]:checked').value==='commune';box.style.display=isCommune?'block':'none';city.readOnly=isCommune;lat.readOnly=isCommune;lng.readOnly=isCommune;if(!isCommune){city.value='';lat.value='';lng.value='';}}
+function commune(){const o=select.options[select.selectedIndex];if(!o||!o.value){city.value='';lat.value='';lng.value='';return;}city.value=o.dataset.name;lat.value=o.dataset.lat;lng.value=o.dataset.lng;if(o.dataset.lat&&o.dataset.lng){info.textContent='Centre utilisé : '+o.dataset.lat+', '+o.dataset.lng;}else{info.textContent='Coordonnées indisponibles : réessaie lorsque le référentiel géographique est accessible.';}}
+radios.forEach(r=>r.addEventListener('change',mode));select.addEventListener('change',commune);mode();
+})();
+</script>
 <h2>Recherches précédentes</h2>
 <div class="panel"><table><tr><th>Job</th><th>Ville</th><th>Coordonnées</th><th>Rayon</th><th>Types</th><th>Grille</th><th>Max/appel</th><th>Résultat</th><th></th></tr>
 {% for x in previous %}<tr><td>#{{x.id}}</td><td>{{x.city}}</td><td>{{'%.5f'|format(x.latitude)}}, {{'%.5f'|format(x.longitude)}}</td><td>{{x.radius}} m</td><td class="search-types">{{x.types}}</td><td>{{x.rings or 1}}</td><td>{{x.max_results or 20}}</td><td>{{x.total_found}} / {{x.total_filtered}}</td><td><form method="post" action="/search/rerun/{{x.id}}" onsubmit="return confirm('Relancer la recherche #{{x.id}} avec les mêmes paramètres ?')"><button type="submit">Relancer</button></form></td></tr>{% else %}<tr><td colspan="9">Aucune recherche précédente.</td></tr>{% endfor %}
