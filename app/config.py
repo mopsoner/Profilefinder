@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/profilefinder.db"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    google_places_nearby_rpm: int = 60
+    google_places_workers: int = 8
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 @lru_cache
