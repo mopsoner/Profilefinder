@@ -114,6 +114,15 @@ def force_resolve_commune(code,department_code="971"):
 
 def get_or_resolve_commune(code,department_code="971"):
     data=_load_cache(); cached=data["departments"].get(department_code,{}).get("communes",{}).get(code)
+    if not cached:
+        raise ValueError("Commune inconnue dans ce département")
+    # A resolved Google commune can come from the legacy cache without postal
+    # metadata. Refresh only the official metadata in that case; do not change
+    # the Google resolution.
+    if not cached.get("postal_codes"):
+        refresh_department_metadata(department_code)
+        data=_load_cache()
+        cached=data["departments"].get(department_code,{}).get("communes",{}).get(code)
     if cached and _is_resolved(cached): return cached
     return force_resolve_commune(code,department_code)
 
