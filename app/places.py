@@ -43,6 +43,16 @@ class Places:
                 time.sleep(2**attempt)
             response.raise_for_status()
 
+    def oldest_review_time(self,place_id):
+        key=settings().google_places_api_key
+        if not key: raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
+        url=f"https://places.googleapis.com/v1/places/{place_id}"
+        headers={"X-Goog-Api-Key":key,"X-Goog-FieldMask":"reviews.publishTime"}
+        response=httpx.get(url,headers=headers,params={"languageCode":"fr"},timeout=30)
+        response.raise_for_status()
+        times=[r.get("publishTime") for r in (response.json().get("reviews") or []) if r.get("publishTime")]
+        return min(times) if times else None
+
     def photos(self,place_id,max_photos=10):
         key=settings().google_places_api_key
         if not key: raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
