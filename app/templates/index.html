@@ -1,1 +1,22 @@
-{% extends 'base.html' %}{% block content %}<h1>Dashboard</h1><section class="cards"><article><strong>{{leads}}</strong><span>Prospects</span></article><article><strong>{{jobs}}</strong><span>Recherches</span></article></section><h2>Derniers jobs</h2><table><tr><th>ID</th><th>Ville</th><th>Statut</th><th>Trouves</th><th>Retenus</th></tr>{% for x in recent %}<tr><td>{{x.id}}</td><td>{{x.city}}</td><td>{{x.status}}</td><td>{{x.total_found}}</td><td>{{x.total_filtered}}</td></tr>{% endfor %}</table>{% endblock %}
+{% extends 'base.html' %}{% block content %}
+<div class="dashboard-hero"><div><span class="eyebrow">PILOTAGE ACQUISITION</span><h1>Dashboard prospects</h1><p class="muted">Détection des nouveaux établissements Google Places et priorisation commerciale.</p></div><div class="actions"><a class="button" href="/search">Nouvelle recherche</a><a class="button secondary" href="/leads">Tous les prospects</a></div></div>
+<section class="kpi-grid">
+<a href="/leads" class="kpi-card"><span>Prospects total</span><strong>{{leads}}</strong><small>Base commerciale</small></a>
+<article class="kpi-card accent"><span>Nouveaux · 24 h</span><strong>+{{new_24h}}</strong><small>Détectés depuis hier</small></article>
+<article class="kpi-card"><span>Nouveaux · 7 jours</span><strong>+{{new_7d}}</strong><small>Acquisition récente</small></article>
+<article class="kpi-card"><span>Sans site web</span><strong>{{no_website}}</strong><small>Opportunités prioritaires</small></article>
+<article class="kpi-card"><span>Score ≥ 4</span><strong>{{high_score}}</strong><small>Prospects à fort potentiel</small></article>
+<article class="kpi-card"><span>Jobs exécutés</span><strong>{{jobs}}</strong><small>{% if latest_job %}Dernier : #{{latest_job.id}} · {{latest_job.city}}{% else %}Aucun job{% endif %}</small></article>
+</section>
+
+<div class="dashboard-columns">
+<section><div class="section-head"><div><h2>Nouveaux prospects</h2><p class="muted">Les dernières fiches jamais vues par ProfileFinder.</p></div><a href="/leads">Voir tout →</a></div>
+<div class="lead-feed">{% for x in recent_leads %}<a class="lead-feed-item" href="/leads/{{x.id}}"><span class="lead-feed-photo"><img src="/api/leads/{{x.id}}/photos/0" alt="" loading="lazy" onerror="this.style.display='none'"></span><span class="lead-feed-main"><strong>{{x.name}}</strong><small>{{x.business_type}} · {{x.city}}</small><small>{{x.first_seen_at}}</small></span><span class="lead-feed-meta"><b>{{x.score}}/5</b>{% if not x.website %}<em>Sans site</em>{% endif %}</span></a>{% else %}<div class="panel muted">Aucun prospect détecté.</div>{% endfor %}</div></section>
+
+<aside><div class="section-head"><div><h2>À contacter en priorité</h2><p class="muted">Meilleurs scores actuels.</p></div></div>
+<div class="priority-list">{% for x in top_leads %}<a href="/leads/{{x.id}}" class="priority-item"><span><strong>{{x.name}}</strong><small>{{x.city}} · {{x.reviews_count}} avis</small></span><b>{{x.score}}/5</b></a>{% else %}<div class="panel muted">Aucun prospect.</div>{% endfor %}</div></aside>
+</div>
+
+<div class="section-head jobs-head"><div><h2>Activité des recherches</h2><p class="muted">Derniers jobs de détection Google Places.</p></div><a href="/jobs">Tous les jobs →</a></div>
+<div class="ops-panel"><table><tr><th>Job</th><th>Zone</th><th>Statut</th><th>Places trouvées</th><th>Prospects retenus</th><th>Démarré</th></tr>{% for x in recent %}<tr><td><a class="lead-link" href="/jobs/{{x.id}}">#{{x.id}}</a></td><td>{{x.city}}</td><td><span class="badge {{x.status}}">{{x.status}}</span></td><td>{{x.total_found}}</td><td>{{x.total_filtered}}</td><td>{{x.started_at or '-'}}</td></tr>{% endfor %}</table></div>
+{% endblock %}
