@@ -509,21 +509,20 @@ def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
 def api_lead_photos(lead_id:int,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return {"photos":[]}
-    try:
-        photos=Places().photos(lead.place_id,10)
-        return {"photos":[{"url":f"/api/leads/{lead_id}/photos/{i}","width":p.get("widthPx"),"height":p.get("heightPx"),"attributions":p.get("authorAttributions",[])} for i,p in enumerate(photos)]}
-    except Exception as exc: return {"photos":[],"error":str(exc)}
+    try: photos=json.loads(lead.photos_json or "[]")
+    except (TypeError,json.JSONDecodeError): photos=[]
+    return {"photos":[{"url":f"/api/leads/{lead_id}/photos/{i}","width":p.get("widthPx"),"height":p.get("heightPx"),"attributions":p.get("authorAttributions",[])} for i,p in enumerate(photos)]}
 
 @app.get("/api/leads/{lead_id}/photos/{index}")
 def lead_photo(lead_id:int,index:int,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return Response(status_code=404)
-    try:
-        photos=Places().photos(lead.place_id,10)
-        if index<0 or index>=len(photos): return Response(status_code=404)
-        uri=Places().photo_media(photos[index]["name"],800,800)
-        return RedirectResponse(uri)
-    except Exception: return Response(status_code=404)
+    try: photos=json.loads(lead.photos_json or "[]")
+    except (TypeError,json.JSONDecodeError): photos=[]
+    if index<0 or index>=len(photos): return Response(status_code=404)
+    uri=photos[index].get("media_uri")
+    if not uri: return Response(status_code=404)
+    return RedirectResponse(uri)
 
 @app.get("/export.csv")
 def export(db:Session=Depends(get_db)):
