@@ -10,7 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .communes import get_communes,resolve_commune
+from .communes import get_communes,get_or_resolve_commune,initialize_communes
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -20,6 +20,11 @@ with engine.begin() as conn:
         if "max_results" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN max_results INTEGER DEFAULT 20"))
         if "rings" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN rings INTEGER DEFAULT 1"))
 app=FastAPI(title="ProfileFinder",version="1.0.0")
+
+@app.on_event("startup")
+def startup_initialize_reference_data():
+    # Do not block the web server while Google resolves missing communes.
+    threading.Thread(target=initialize_communes,daemon=True,name="commune-init").start()
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 tpl=Jinja2Templates(directory="app/templates")
 TYPES=["restaurant","bar","bakery","meal_takeaway","beauty_salon","hair_care","laundry","car_repair","car_wash","plumber","electrician","painter","locksmith","moving_company","home_goods_store","furniture_store","hardware_store","florist","pet_store","veterinary_care","gym","spa","real_estate_agency","clothing_store","shoe_store","jewelry_store","electronics_store","convenience_store"]
@@ -71,7 +76,7 @@ def search_page(request:Request,db:Session=Depends(get_db)): return tpl.Template
 @app.get("/api/communes/{code}/resolve")
 def api_resolve_commune(code:str):
     try:
-        return {"ok":True,"commune":resolve_commune(code)}
+        return {"ok":True,"commune":get_or_resolve_commune(code)}
     except Exception as exc:
         return {"ok":False,"error":str(exc)}
 
