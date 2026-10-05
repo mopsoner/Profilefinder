@@ -20,7 +20,7 @@
 </div>
 <div class="type-picker-head"><div><h3>Types d'entreprise</h3><p class="muted">Catalogue Google Places · sélectionne les activités à rechercher.</p></div><span id="type-count">0 sélectionné</span></div>
 <div class="type-toolbar"><input id="type-search" type="search" placeholder="Rechercher un type : restaurant, barber, hôtel…"><button type="button" class="secondary" id="select-visible">Tout sélectionner</button><button type="button" class="secondary" id="clear-types">Tout désélectionner</button></div>
-<div class="type-categories">{% for category, items in type_categories.items() %}<details class="type-category"><summary><span>{{category}}</span><span class="category-meta">{{items|length}} types · <button type="button" class="category-toggle">Sélectionner</button></span></summary><div class="checks">{% for x in items %}<label class="type-option" data-search="{{x|replace('_',' ')}}"><input type="checkbox" name="business_types" value="{{x}}"> <span>{{x|replace('_',' ')}}</span><small>{{x}}</small></label>{% endfor %}</div></details>{% endfor %}</div>
+<div class="type-categories">{% for category, items in type_categories.items() %}<details class="type-category"><summary><span>{{category}}</span><span class="category-meta">{{items|length}} types · <button type="button" class="category-toggle">Sélectionner</button></span></summary><div class="checks">{% for x in items %}<label class="type-option" data-search="{{type_label(x)}} {{x|replace('_',' ')}}"><input type="checkbox" name="business_types" value="{{x}}"> <span>{{type_label(x)}}</span><small>{{x}}</small></label>{% endfor %}</div></details>{% endfor %}</div>
 <button>Lancer la recherche</button></form>
 <script>
 (function(){
