@@ -1,4 +1,5 @@
 import csv,io,json,threading
+from concurrent.futures import ThreadPoolExecutor,as_completed
 from datetime import datetime,timedelta
 from fastapi import FastAPI,Depends,Form,Request
 from fastapi.responses import HTMLResponse,RedirectResponse,StreamingResponse,Response
@@ -10,6 +11,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
+from .config import settings
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department
 
 Base.metadata.create_all(engine)
@@ -112,15 +114,25 @@ def worker(jid,types,max_results,rings):
         job.status="running"; job.started_at=datetime.utcnow(); db.commit()
         seen={}; client=Places()
         points=grid_points(job.latitude,job.longitude,job.radius,rings)
-        total_calls=max(1,len(points)*len(types)); completed_calls=0
-        for lat,lng in points:
-            for typ in types:
-                for place in client.nearby(lat,lng,job.radius,typ,max_results):
+        calls=[(lat,lng,typ) for lat,lng in points for typ in types]
+        total_calls=max(1,len(calls)); completed_calls=0
+        workers=max(1,min(settings().google_places_workers,len(calls) or 1))
+
+        def nearby_call(item):
+            lat,lng,typ=item
+            return typ,client.nearby(lat,lng,job.radius,typ,max_results)
+
+        with ThreadPoolExecutor(max_workers=workers,thread_name_prefix="places-nearby") as pool:
+            futures=[pool.submit(nearby_call,item) for item in calls]
+            for future in as_completed(futures):
+                typ,places=future.result()
+                for place in places:
                     if place.get("id"): seen[place["id"]]=(place,typ)
-                completed_calls += 1
+                completed_calls+=1
                 job.total_found=len(seen)
                 job.error=f"PROGRESS:{completed_calls}/{total_calls}"
                 db.commit()
+
         job.total_found=len(seen)
         for pid,(place,typ) in seen.items():
             phone=place.get("internationalPhoneNumber") or place.get("nationalPhoneNumber")
