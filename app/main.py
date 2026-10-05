@@ -124,6 +124,13 @@ def leads(request:Request,q:str="",min_score:int=0,db:Session=Depends(get_db)):
     rows=[x for x in rows if not q or q in x.name.lower() or q in (x.address or "").lower()]
     return tpl.TemplateResponse(request,"leads.html",{"rows":rows,"q":q,"min_score":min_score})
 
+@app.get("/leads/{lead_id}",response_class=HTMLResponse)
+def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return RedirectResponse("/leads",303)
+    jobs=db.scalars(select(Job).join(JobLead,JobLead.job_id==Job.id).where(JobLead.lead_id==lead_id).order_by(Job.id.desc())).all()
+    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs})
+
 @app.get("/export.csv")
 def export(db:Session=Depends(get_db)):
     out=io.StringIO(); writer=csv.writer(out); writer.writerow(["name","type","city","address","phone","whatsapp","rating","reviews","score"])
