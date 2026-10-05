@@ -112,6 +112,35 @@ def force_resolve_commune(code,department_code="971"):
     result=resolve_commune(code,department_code); data=_load_cache()
     data["departments"][department_code]["communes"][code]=result; _save_cache(data); return result
 
+def commune_coverage(code):
+    """Return an automatic Nearby-search radius/ring count covering the commune contour."""
+    with httpx.Client(timeout=30) as client:
+        r=client.get(f"{GEO_URL}/communes/{code}",params={"geometry":"contour","format":"geojson"})
+        r.raise_for_status()
+        feature=r.json()
+    geometry=feature.get("geometry") or {}
+    coords=geometry.get("coordinates") or []
+    points=[]
+    def collect(value):
+        if isinstance(value,list) and len(value)>=2 and all(isinstance(x,(int,float)) for x in value[:2]):
+            points.append((float(value[1]),float(value[0])))
+        elif isinstance(value,list):
+            for child in value: collect(child)
+    collect(coords)
+    if not points: raise RuntimeError(f"Contour introuvable pour la commune {code}")
+    min_lat=min(p[0] for p in points); max_lat=max(p[0] for p in points)
+    min_lng=min(p[1] for p in points); max_lng=max(p[1] for p in points)
+    center_lat=(min_lat+max_lat)/2; center_lng=(min_lng+max_lng)/2
+    lat_m=(max_lat-min_lat)*111320
+    lng_m=(max_lng-min_lng)*111320*max(__import__("math").cos(__import__("math").radians(center_lat)),.1)
+    # Existing grid_points uses a maximum 1.5 km step. Add margin so edge
+    # businesses are covered, then postal filtering removes neighbouring communes.
+    half_span=max(lat_m,lng_m)/2
+    radius=1500
+    rings=max(1,min(12,int(__import__("math").ceil((half_span+radius)/1500))))
+    return {"latitude":center_lat,"longitude":center_lng,"radius":radius,"rings":rings,
+            "bbox":[min_lat,min_lng,max_lat,max_lng]}
+
 def get_or_resolve_commune(code,department_code="971"):
     data=_load_cache(); cached=data["departments"].get(department_code,{}).get("communes",{}).get(code)
     if not cached:
