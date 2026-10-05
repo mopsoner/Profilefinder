@@ -7,5 +7,24 @@
 <article class="panel"><h2>Google Places</h2><dl><dt>Place ID</dt><dd class="mono">{{lead.place_id}}</dd><dt>Latitude</dt><dd>{{lead.latitude or '-'}}</dd><dt>Longitude</dt><dd>{{lead.longitude or '-'}}</dd></dl></article>
 <article class="panel"><h2>Suivi</h2><dl><dt>Première détection</dt><dd>{{lead.first_seen_at}}</dd><dt>Dernière mise à jour</dt><dd>{{lead.updated_at}}</dd><dt>Jobs associés</dt><dd>{% for j in jobs %}<a href="/ops">#{{j.id}}</a>{% if not loop.last %}, {% endif %}{% else %}-{% endfor %}</dd></dl></article>
 </section>
-<h2>Avis / commentaires</h2><div class="panel"><p class="muted">Les avis Google détaillés seront affichés ici lorsque la synchronisation des avis sera activée.</p></div>
+<h2>Avis Google</h2>
+<div class="panel">
+<p class="muted">Avis fournis par Google Places et classés par pertinence. Ils représentent un échantillon des avis disponibles sur Google Maps et ne constituent pas nécessairement l’historique complet.</p>
+{% if reviews %}
+<div class="reviews-list">
+{% for review in reviews %}
+<article class="review-card">
+{% set author=review.authorAttribution or {} %}
+<div class="review-head">
+<div>{% if author.photoUri %}<img class="review-avatar" src="{{author.photoUri}}" alt="">{% endif %}<strong>{% if author.uri %}<a href="{{author.uri}}" target="_blank" rel="noopener">{{author.displayName or 'Utilisateur Google'}}</a>{% else %}{{author.displayName or 'Utilisateur Google'}}{% endif %}</strong></div>
+<strong>{{review.rating or '-'}} / 5</strong>
+</div>
+<p>{{(review.text or {}).text or 'Avis sans commentaire.'}}</p>
+<p class="muted">{{review.relativePublishTimeDescription or review.publishTime or ''}}{% if review.visitDate %} · Visite : {{review.visitDate.month}}/{{review.visitDate.year}}{% endif %}</p>
+<div class="review-links">{% if review.googleMapsUri %}<a href="{{review.googleMapsUri}}" target="_blank" rel="noopener">Voir l’avis sur Google Maps</a>{% endif %}{% if review.flagContentUri %}<a href="{{review.flagContentUri}}" target="_blank" rel="noopener">Signaler</a>{% endif %}</div>
+</article>
+{% endfor %}
+</div>
+{% else %}<p class="muted">Aucun avis détaillé retourné par Google pour cette fiche.</p>{% endif %}
+</div>
 {% endblock %}
