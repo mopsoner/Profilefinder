@@ -10,7 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department
+from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -163,6 +163,34 @@ def ops_add_department(department_code:str=Form(...)):
         threading.Thread(target=initialize_department,args=(dep["code"],),daemon=True,name=f'department-init-{dep["code"]}').start()
     except Exception: pass
     return RedirectResponse("/ops#communes",303)
+
+@app.post("/ops/departments/{department_code}/delete")
+def ops_delete_department(department_code:str):
+    try: delete_department(department_code)
+    except Exception: pass
+    return RedirectResponse("/ops#communes",303)
+
+@app.post("/ops/database/clear-prospects")
+def ops_clear_prospects(db:Session=Depends(get_db)):
+    db.query(JobLead).delete(synchronize_session=False)
+    db.query(Lead).delete(synchronize_session=False)
+    db.commit()
+    return RedirectResponse("/ops#database",303)
+
+@app.post("/ops/database/clear-jobs")
+def ops_clear_jobs(db:Session=Depends(get_db)):
+    db.query(JobLead).delete(synchronize_session=False)
+    db.query(Job).delete(synchronize_session=False)
+    db.commit()
+    return RedirectResponse("/ops#database",303)
+
+@app.post("/ops/database/clear-all")
+def ops_clear_all(db:Session=Depends(get_db)):
+    db.query(JobLead).delete(synchronize_session=False)
+    db.query(Lead).delete(synchronize_session=False)
+    db.query(Job).delete(synchronize_session=False)
+    db.commit()
+    return RedirectResponse("/ops#database",303)
 
 @app.post("/ops/departments/{department_code}/initialize")
 def ops_initialize_department(department_code:str):
