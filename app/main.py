@@ -391,21 +391,34 @@ def sites(request:Request,db:Session=Depends(get_db)):
     candidates=[x for x in candidates if x.id not in generated_ids]
     return tpl.TemplateResponse(request,"sites.html",{"generated":generated,"candidates":candidates})
 
-@app.post("/sites/{lead_id}/generate")
-def sites_generate(lead_id:int,db:Session=Depends(get_db)):
-    lead=db.get(Lead,lead_id)
-    if not lead: return RedirectResponse("/sites",303)
-    try: insights=json.loads(lead.insights_json or "{}")
-    except (TypeError,json.JSONDecodeError): insights={}
+def generate_site_background(lead_id:int):
+    db=SessionLocal()
     try:
+        lead=db.get(Lead,lead_id)
+        if not lead: return
+        try: insights=json.loads(lead.insights_json or "{}")
+        except (TypeError,json.JSONDecodeError): insights={}
         content=generate_lead_website(lead,insights)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
-            row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
+            row.content_json=json.dumps(content,ensure_ascii=False)
+            row.model=settings().openai_model
+            row.updated_at=datetime.utcnow()
         else:
             db.add(LeadWebsite(lead_id=lead_id,content_json=json.dumps(content,ensure_ascii=False),model=settings().openai_model))
         db.commit()
-    except Exception: db.rollback()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+def queue_site_generation(lead_id:int):
+    threading.Thread(target=generate_site_background,args=(lead_id,),daemon=True,name=f"site-ai-{lead_id}").start()
+
+@app.post("/sites/{lead_id}/generate")
+def sites_generate(lead_id:int,db:Session=Depends(get_db)):
+    if not db.get(Lead,lead_id): return RedirectResponse("/sites",303)
+    queue_site_generation(lead_id)
     return RedirectResponse("/sites",303)
 
 @app.post("/sites/{lead_id}/delete")
@@ -432,23 +445,9 @@ def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(g
 
 @app.post("/leads/{lead_id}/web/generate")
 def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
-    lead=db.get(Lead,lead_id)
-    if not lead: return RedirectResponse("/leads",303)
-    try:
-        insights=json.loads(lead.insights_json or "{}")
-    except (TypeError,json.JSONDecodeError):
-        insights={}
-    try:
-        content=generate_lead_website(lead,insights)
-        row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
-        if row:
-            row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
-        else:
-            db.add(LeadWebsite(lead_id=lead_id,content_json=json.dumps(content,ensure_ascii=False),model=settings().openai_model))
-        db.commit()
-    except Exception:
-        db.rollback()
-    return RedirectResponse(f"/leads/{lead_id}/web",303)
+    if not db.get(Lead,lead_id): return RedirectResponse("/leads",303)
+    queue_site_generation(lead_id)
+    return RedirectResponse(f"/leads/{lead_id}/web?generating=1",303)
 
 @app.get("/api/leads/{lead_id}/photos")
 def api_lead_photos(lead_id:int,db:Session=Depends(get_db)):
