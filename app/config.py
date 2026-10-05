@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     google_places_api_key: str = ""
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5"
     database_url: str = "sqlite:///./data/profilefinder.db"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
