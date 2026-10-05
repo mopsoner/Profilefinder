@@ -41,6 +41,8 @@ class Lead(Base):
     score: Mapped[int]=mapped_column(default=0)
     google_activity_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     first_seen_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    insights_json: Mapped[str|None]=mapped_column(Text,nullable=True)
+    insights_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
 class LeadWebsite(Base):
