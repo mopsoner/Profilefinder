@@ -10,7 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .communes import get_communes,get_or_resolve_commune,initialize_communes
+from .communes import get_communes,get_or_resolve_commune,initialize_communes,force_resolve_commune,commune_stats
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -109,7 +109,22 @@ def ops(request:Request,db:Session=Depends(get_db)):
     running=sum(1 for x in rows if x.status=="running")
     failed=sum(1 for x in rows if x.status=="failed")
     completed=sum(1 for x in rows if x.status=="completed")
-    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now})
+    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now,"communes":get_communes(),"commune_stats":commune_stats()})
+
+@app.post("/ops/communes/initialize")
+def ops_initialize_communes():
+    threading.Thread(target=initialize_communes,daemon=True,name="commune-init-manual").start()
+    return RedirectResponse("/ops#communes",303)
+
+@app.post("/ops/communes/{code}/sync")
+def ops_sync_commune(code:str):
+    try: force_resolve_commune(code)
+    except Exception: pass
+    return RedirectResponse("/ops#communes",303)
+
+@app.get("/api/ops/communes")
+def api_ops_communes():
+    return {"stats":commune_stats(),"communes":get_communes()}
 
 @app.get("/api/ops/logs")
 def api_ops_logs():
