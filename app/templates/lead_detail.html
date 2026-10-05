@@ -1,0 +1,10 @@
+{% extends 'base.html' %}{% block content %}
+<div class="head"><div><a class="back-link" href="/leads">← Retour aux prospects</a><h1>{{lead.name}}</h1><p class="muted">{{lead.business_type or 'Type inconnu'}} · {{lead.city or ''}}</p></div><div class="actions">{% if lead.whatsapp_url %}<a class="button" target="_blank" href="{{lead.whatsapp_url}}">WhatsApp</a>{% endif %}{% if lead.phone %}<a class="button secondary" href="tel:{{lead.phone}}">Appeler</a>{% endif %}</div></div>
+<section class="detail-grid">
+<article class="panel"><h2>Contact</h2><dl><dt>Téléphone</dt><dd>{{lead.phone or '-'}}</dd><dt>WhatsApp</dt><dd>{% if lead.whatsapp_url %}<a target="_blank" href="{{lead.whatsapp_url}}">{{lead.phone_digits}}</a>{% else %}-{% endif %}</dd><dt>Site web</dt><dd>{% if lead.website %}<a target="_blank" href="{{lead.website}}">{{lead.website}}</a>{% else %}<span class="badge failed">Aucun site détecté</span>{% endif %}</dd><dt>Adresse</dt><dd>{{lead.address or '-'}}</dd></dl></article>
+<article class="panel"><h2>Qualification</h2><dl><dt>Score ProfileFinder</dt><dd><strong class="score-big">{{lead.score}}</strong> / 5</dd><dt>Note Google</dt><dd>{{lead.rating if lead.rating is not none else '-'}}</dd><dt>Nombre d'avis</dt><dd>{{lead.reviews_count}}</dd><dt>Type</dt><dd>{{lead.business_type or '-'}}</dd></dl></article>
+<article class="panel"><h2>Google Places</h2><dl><dt>Place ID</dt><dd class="mono">{{lead.place_id}}</dd><dt>Latitude</dt><dd>{{lead.latitude or '-'}}</dd><dt>Longitude</dt><dd>{{lead.longitude or '-'}}</dd></dl></article>
+<article class="panel"><h2>Suivi</h2><dl><dt>Première détection</dt><dd>{{lead.first_seen_at}}</dd><dt>Dernière mise à jour</dt><dd>{{lead.updated_at}}</dd><dt>Jobs associés</dt><dd>{% for j in jobs %}<a href="/ops">#{{j.id}}</a>{% if not loop.last %}, {% endif %}{% else %}-{% endfor %}</dd></dl></article>
+</section>
+<h2>Avis / commentaires</h2><div class="panel"><p class="muted">Les avis Google détaillés seront affichés ici lorsque la synchronisation des avis sera activée.</p></div>
+{% endblock %}
