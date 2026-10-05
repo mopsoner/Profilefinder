@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block content %}
+<div class="head"><div><h1>Sites IA</h1><p class="muted">Gérez les vitrines générées pour vos prospects.</p></div></div>
+<div class="detail-grid">
+<article class="panel"><h2>{{generated|length}}</h2><p class="muted">sites générés</p></article>
+<article class="panel"><h2>{{candidates|length}}</h2><p class="muted">prospects prioritaires sans site détecté</p></article>
+</div>
+<h2>Sites générés</h2>
+<div class="ops-panel"><table><thead><tr><th>Prospect</th><th>Type</th><th>Ville</th><th>Pages</th><th>Modèle</th><th>Mise à jour</th><th>Actions</th></tr></thead><tbody>
+{% for website,lead in generated %}{% set data=website.content_json|from_json %}<tr>
+<td><a class="lead-link" href="/leads/{{lead.id}}">{{lead.name}}</a></td><td>{{type_label(lead.business_type)}}</td><td>{{lead.city or '-'}}</td><td>{{(data.pages or [])|length}}</td><td>{{website.model or '-'}}</td><td>{{website.updated_at}}</td>
+<td><a class="button secondary" target="_blank" href="/leads/{{lead.id}}/web">Voir</a><form style="display:inline" method="post" action="/sites/{{lead.id}}/generate"><button type="submit">Régénérer</button></form><form style="display:inline" method="post" action="/sites/{{lead.id}}/delete" onsubmit="return confirm('Supprimer ce site IA ?')"><button class="secondary" type="submit">Supprimer</button></form></td>
+</tr>{% else %}<tr><td colspan="7" class="muted">Aucun site IA généré.</td></tr>{% endfor %}
+</tbody></table></div>
+<h2>Prospects à équiper</h2><p class="muted">Priorité aux prospects sans site web détecté, classés par score ProfileFinder.</p>
+<div class="ops-panel"><table><thead><tr><th>Prospect</th><th>Type</th><th>Ville</th><th>Score</th><th>Avis</th><th>Insights</th><th>Action</th></tr></thead><tbody>
+{% for lead in candidates %}<tr><td><a class="lead-link" href="/leads/{{lead.id}}">{{lead.name}}</a></td><td>{{type_label(lead.business_type)}}</td><td>{{lead.city or '-'}}</td><td><b>{{lead.score}}</b></td><td>{{lead.reviews_count}}</td><td>{% if lead.insights_json %}<span class="badge completed">Prêts</span>{% else %}<span class="badge queued">À analyser</span>{% endif %}</td><td><form method="post" action="/sites/{{lead.id}}/generate"><button type="submit">Générer</button></form></td></tr>{% else %}<tr><td colspan="7" class="muted">Aucun prospect prioritaire.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}
