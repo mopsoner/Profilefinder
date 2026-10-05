@@ -1,5 +1,5 @@
 import csv,io,json,threading
-from datetime import datetime
+from datetime import datetime,timedelta
 from fastapi import FastAPI,Depends,Form,Request
 from fastapi.responses import HTMLResponse,RedirectResponse,StreamingResponse,Response
 from fastapi.staticfiles import StaticFiles
@@ -68,7 +68,17 @@ def worker(jid,types,max_results,rings):
 
 @app.get("/",response_class=HTMLResponse)
 def home(request:Request,db:Session=Depends(get_db)):
-    return tpl.TemplateResponse(request,"index.html",{"leads":db.scalar(select(func.count()).select_from(Lead)) or 0,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":db.scalars(select(Job).order_by(Job.id.desc()).limit(8)).all()})
+    now=datetime.utcnow(); since_24h=now-timedelta(hours=24); since_7d=now-timedelta(days=7)
+    total=db.scalar(select(func.count()).select_from(Lead)) or 0
+    new_24h=db.scalar(select(func.count()).select_from(Lead).where(Lead.first_seen_at>=since_24h)) or 0
+    new_7d=db.scalar(select(func.count()).select_from(Lead).where(Lead.first_seen_at>=since_7d)) or 0
+    no_website=db.scalar(select(func.count()).select_from(Lead).where(Lead.website.is_(None))) or 0
+    high_score=db.scalar(select(func.count()).select_from(Lead).where(Lead.score>=4)) or 0
+    recent_leads=db.scalars(select(Lead).order_by(Lead.first_seen_at.desc()).limit(12)).all()
+    top_leads=db.scalars(select(Lead).order_by(Lead.score.desc(),Lead.reviews_count.desc(),Lead.first_seen_at.desc()).limit(8)).all()
+    recent_jobs=db.scalars(select(Job).order_by(Job.id.desc()).limit(8)).all()
+    latest_job=recent_jobs[0] if recent_jobs else None
+    return tpl.TemplateResponse(request,"index.html",{"leads":total,"new_24h":new_24h,"new_7d":new_7d,"no_website":no_website,"high_score":high_score,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":recent_jobs,"recent_leads":recent_leads,"top_leads":top_leads,"latest_job":latest_job})
 
 @app.get("/search",response_class=HTMLResponse)
 def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
