@@ -12,6 +12,7 @@ from .models import Job,Lead,JobLead,LeadWebsite
 from .core import grid_points,normalize_phone,score
 from .places import Places
 from .site_generator import generate_lead_website
+from .lead_insights import build_insights
 from .config import settings
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
@@ -25,6 +26,8 @@ with engine.begin() as conn:
         if "postal_codes" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN postal_codes TEXT"))
         lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
+        if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
+        if "insights_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_at DATETIME"))
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
 @app.on_event("startup")
