@@ -368,6 +368,13 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     except Exception: pass
     try: reviews=places.reviews(lead.place_id)
     except Exception: pass
+    if reviews and not lead.insights_json:
+        try:
+            lead.insights_json=json.dumps(build_insights(lead,reviews),ensure_ascii=False)
+            lead.insights_at=datetime.utcnow()
+            db.commit()
+        except Exception:
+            db.rollback()
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
 
 @app.get("/leads/{lead_id}/web",response_class=HTMLResponse)
