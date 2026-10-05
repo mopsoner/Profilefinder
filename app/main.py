@@ -48,7 +48,7 @@ def worker(jid,types,max_results,rings):
         for pid,(place,typ) in seen.items():
             phone=place.get("internationalPhoneNumber") or place.get("nationalPhoneNumber")
             website=place.get("websiteUri")
-            if website or not phone: continue
+            if not phone: continue
             digits=normalize_phone(phone)
             if not digits: continue
             lead=db.scalar(select(Lead).where(Lead.place_id==pid)); loc=place.get("location",{})
