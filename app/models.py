@@ -11,6 +11,8 @@ class Job(Base):
     longitude: Mapped[float]=mapped_column(Float)
     radius: Mapped[int]=mapped_column()
     types: Mapped[str]=mapped_column(Text)
+    max_results: Mapped[int]=mapped_column(default=20)
+    rings: Mapped[int]=mapped_column(default=1)
     status: Mapped[str]=mapped_column(String(20),default="queued")
     total_found: Mapped[int]=mapped_column(default=0)
     total_filtered: Mapped[int]=mapped_column(default=0)
