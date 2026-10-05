@@ -7,7 +7,7 @@
 <label><input type="radio" name="location_mode" value="custom"> Coordonnées personnalisées</label>
 </div>
 <div id="commune-mode">
-<label>Commune<select id="commune-select"><option value="">Choisir une commune…</option>{% for c in communes %}<option value="{{c.code}}" data-name="{{c.name}}" data-place-id="{{c.google_place_id or ''}}" data-lat="{{c.latitude if c.latitude is defined and c.latitude is not none else ''}}" data-lng="{{c.longitude if c.longitude is defined and c.longitude is not none else '')}}" data-postal="{{(c.postal_codes or [])|join(',')}}">{{c.name}}{% if c.postal_codes %} ({{c.postal_codes|join(", ")}}){% endif %}{% if c.resolved %} ✓{% endif %}</option>{% endfor %}</select></label>
+<label>Commune<select id="commune-select"><option value="">Choisir une commune…</option>{% for c in communes %}<option value="{{c.code}}" data-name="{{c.name}}" data-place-id="{{c.google_place_id or ''}}" data-lat="{{c.latitude if c.latitude is defined and c.latitude is not none else ''}}" data-lng="{{c.longitude if c.longitude is defined and c.longitude is not none else ''}}" data-postal="{{(c.postal_codes or [])|join(',')}}">{{c.name}}{% if c.postal_codes %} ({{c.postal_codes|join(", ")}}){% endif %}{% if c.resolved %} ✓{% endif %}</option>{% endfor %}</select></label>
 <p class="muted" id="commune-info">Sélectionne une commune : Google Places résoudra son Place ID et ses coordonnées.</p>
 </div>
 <input type="hidden" id="postal-codes" name="postal_codes" value="">
