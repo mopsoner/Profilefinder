@@ -4,20 +4,15 @@ from .config import settings
 
 API_URL="https://api.openai.com/v1/responses"
 
-def generate_lead_website(lead,reviews):
+def generate_lead_website(lead,insights):
     cfg=settings()
     if not cfg.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    review_rows=[]
-    for r in reviews[:8]:
-        text=((r.get("text") or {}).get("text") or "").strip()
-        if text:
-            review_rows.append({"rating":r.get("rating"),"text":text[:1200]})
     facts={
         "name":lead.name,"business_type":lead.business_type,"city":lead.city,
         "address":lead.address,"phone":lead.phone,"rating":lead.rating,
         "reviews_count":lead.reviews_count,"website":lead.website,
-        "reviews":review_rows
+        "review_insights":insights or {}
     }
     schema={
       "type":"object","additionalProperties":False,
