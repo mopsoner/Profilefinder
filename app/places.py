@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import threading
 from pathlib import Path
 import httpx
 from .config import settings
@@ -10,6 +11,19 @@ MASK=",".join(["places.id","places.displayName","places.formattedAddress","place
 
 Path("data/logs").mkdir(parents=True,exist_ok=True)
 logger=logging.getLogger("profilefinder.places")
+_rate_lock=threading.Lock()
+_next_nearby_at=0.0
+
+def _wait_nearby_slot():
+    global _next_nearby_at
+    rpm=max(1,settings().google_places_nearby_rpm)
+    interval=60.0/rpm
+    with _rate_lock:
+        now=time.monotonic()
+        wait=max(0.0,_next_nearby_at-now)
+        _next_nearby_at=max(now,_next_nearby_at)+interval
+    if wait:
+        time.sleep(wait)
 if not logger.handlers:
     handler=logging.FileHandler("data/logs/places.log")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
@@ -27,6 +41,7 @@ class Places:
         with httpx.Client(timeout=30) as client:
             for attempt in range(4):
                 try:
+                    _wait_nearby_slot()
                     response=client.post(URL,json=body,headers=headers)
                 except httpx.RequestError as exc:
                     logger.error("NETWORK_ERROR type=%s lat=%.6f lng=%.6f attempt=%s error=%s",business_type,lat,lng,attempt+1,exc)
