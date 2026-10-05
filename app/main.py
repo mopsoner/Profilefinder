@@ -102,6 +102,25 @@ def rerun_search(job_id:int,db:Session=Depends(get_db)):
 @app.get("/jobs",response_class=HTMLResponse)
 def jobs(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"jobs.html",{"jobs":db.scalars(select(Job).order_by(Job.id.desc())).all()})
 
+@app.get("/jobs/{job_id}",response_class=HTMLResponse)
+def job_detail(job_id:int,request:Request,db:Session=Depends(get_db)):
+    job=db.get(Job,job_id)
+    if not job: return RedirectResponse("/jobs",303)
+    try: business_types=json.loads(job.types or "[]")
+    except (TypeError,json.JSONDecodeError): business_types=[]
+    leads=db.scalars(select(Lead).join(JobLead,JobLead.lead_id==Lead.id).where(JobLead.job_id==job_id).order_by(Lead.score.desc(),Lead.id.desc())).all()
+    progress=None
+    if job.status=="completed": progress=100
+    elif job.error and job.error.startswith("PROGRESS:"):
+        try:
+            done,total=map(int,job.error.split(":",1)[1].split("/")); progress=round(done*100/total)
+        except (ValueError,ZeroDivisionError): pass
+    duration=None
+    if job.started_at:
+        end=job.finished_at or datetime.utcnow()
+        duration=max(0,round((end-job.started_at).total_seconds()))
+    return tpl.TemplateResponse(request,"job_detail.html",{"job":job,"leads":leads,"business_types":business_types,"progress":progress,"duration":duration})
+
 @app.get("/ops",response_class=HTMLResponse)
 def ops(request:Request,db:Session=Depends(get_db)):
     rows=db.scalars(select(Job).order_by(Job.id.desc()).limit(100)).all()
