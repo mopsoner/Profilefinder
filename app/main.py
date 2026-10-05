@@ -171,24 +171,6 @@ def worker(jid,types,max_results,rings):
                 except Exception: pass
                 lead=Lead(place_id=pid,google_activity_at=google_activity_at,**values)
                 db.add(lead); db.flush()
-                try:
-                    reviews=client.reviews(pid)
-                    photos=client.photos(pid,10)
-                    cached_photos=[]
-                    for photo in photos:
-                        item=dict(photo)
-                        try: item["media_uri"]=client.photo_media(photo["name"],800,800)
-                        except Exception: item["media_uri"]=None
-                        cached_photos.append(item)
-                    lead.reviews_json=json.dumps(reviews,ensure_ascii=False)
-                    lead.photos_json=json.dumps(cached_photos,ensure_ascii=False)
-                    lead.media_cached_at=datetime.utcnow()
-                    if reviews:
-                        try:
-                            lead.insights_json=json.dumps(build_insights(lead,reviews),ensure_ascii=False)
-                            lead.insights_at=datetime.utcnow()
-                        except Exception: pass
-                except Exception: pass
             if not db.scalar(select(JobLead).where(JobLead.job_id==jid,JobLead.lead_id==lead.id)):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
             return True
