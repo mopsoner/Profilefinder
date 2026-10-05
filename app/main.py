@@ -386,10 +386,10 @@ def lead_web(lead_id:int,request:Request,db:Session=Depends(get_db)):
         return tpl.TemplateResponse(request,"lead_web_empty.html",{"lead":lead})
     try: site=json.loads(generated.content_json)
     except (TypeError,json.JSONDecodeError): site={}
-    has_photo=False
-    try: has_photo=bool(Places().photos(lead.place_id,1))
+    photo_count=0
+    try: photo_count=len(Places().photos(lead.place_id,10))
     except Exception: pass
-    return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"has_photo":has_photo})
+    return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"photo_count":photo_count})
 
 @app.post("/leads/{lead_id}/web/generate")
 def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
