@@ -45,6 +45,9 @@ class Lead(Base):
     first_seen_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     insights_json: Mapped[str|None]=mapped_column(Text,nullable=True)
     insights_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    photos_json: Mapped[str|None]=mapped_column(Text,nullable=True)
+    reviews_json: Mapped[str|None]=mapped_column(Text,nullable=True)
+    media_cached_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
 class LeadWebsite(Base):
