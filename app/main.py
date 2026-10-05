@@ -378,18 +378,19 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
 
 @app.get("/leads/{lead_id}/web",response_class=HTMLResponse)
-def lead_web(lead_id:int,request:Request,db:Session=Depends(get_db)):
+def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
     generated=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
-    if not generated:
-        return tpl.TemplateResponse(request,"lead_web_empty.html",{"lead":lead})
+    if not generated: return tpl.TemplateResponse(request,"lead_web_empty.html",{"lead":lead})
     try: site=json.loads(generated.content_json)
     except (TypeError,json.JSONDecodeError): site={}
+    pages=site.get("pages") or []
+    current=next((x for x in pages if x.get("slug")==page),pages[0] if pages else {})
     photo_count=0
     try: photo_count=len(Places().photos(lead.place_id,10))
     except Exception: pass
-    return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"photo_count":photo_count})
+    return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"pages":pages,"page":current,"photo_count":photo_count})
 
 @app.post("/leads/{lead_id}/web/generate")
 def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
