@@ -42,3 +42,22 @@ class Places:
                     return payload.get("places",[])
                 time.sleep(2**attempt)
             response.raise_for_status()
+
+    def photos(self,place_id,max_photos=10):
+        key=settings().google_places_api_key
+        if not key: raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
+        url=f"https://places.googleapis.com/v1/places/{place_id}"
+        headers={"X-Goog-Api-Key":key,"X-Goog-FieldMask":"photos"}
+        response=httpx.get(url,headers=headers,timeout=30)
+        response.raise_for_status()
+        return (response.json().get("photos") or [])[:max(1,min(10,max_photos))]
+
+    def photo_media(self,photo_name,max_width=1200,max_height=1200):
+        key=settings().google_places_api_key
+        if not key: raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
+        url=f"https://places.googleapis.com/v1/{photo_name}/media"
+        response=httpx.get(url,params={"maxWidthPx":max_width,"maxHeightPx":max_height,"skipHttpRedirect":"true"},headers={"X-Goog-Api-Key":key},timeout=30)
+        response.raise_for_status()
+        data=response.json()
+        if not data.get("photoUri"): raise RuntimeError("Google Places did not return photoUri")
+        return data["photoUri"]
