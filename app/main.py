@@ -42,6 +42,10 @@ SITE_AI_WORKERS=max(1,min(8,settings().google_places_workers))
 site_ai_pool=ThreadPoolExecutor(max_workers=SITE_AI_WORKERS,thread_name_prefix="site-ai")
 site_ai_futures={}
 site_ai_lock=threading.Lock()
+ENRICH_WORKERS=max(1,min(6,settings().google_places_workers))
+enrich_pool=ThreadPoolExecutor(max_workers=ENRICH_WORKERS,thread_name_prefix="lead-enrich")
+enrich_futures={}
+enrich_lock=threading.Lock()
 
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
@@ -129,6 +133,40 @@ def detection_label(lead):
 tpl.env.globals["google_age_label"]=google_age_label
 tpl.env.globals["detection_label"]=detection_label
 
+def enrich_lead_background(lead_id:int):
+    db=SessionLocal()
+    try:
+        lead=db.get(Lead,lead_id)
+        if not lead: return
+        client=Places()
+        reviews=client.reviews(lead.place_id)
+        photos=client.photos(lead.place_id,10)
+        cached_photos=[]
+        for photo in photos:
+            item=dict(photo)
+            try: item["media_uri"]=client.photo_media(photo["name"],800,800)
+            except Exception: item["media_uri"]=None
+            cached_photos.append(item)
+        lead.reviews_json=json.dumps(reviews,ensure_ascii=False)
+        lead.photos_json=json.dumps(cached_photos,ensure_ascii=False)
+        lead.media_cached_at=datetime.utcnow()
+        if reviews and not lead.insights_json:
+            try:
+                lead.insights_json=json.dumps(build_insights(lead,reviews),ensure_ascii=False)
+                lead.insights_at=datetime.utcnow()
+            except Exception: pass
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+def queue_lead_enrichment(lead_id:int):
+    with enrich_lock:
+        current=enrich_futures.get(lead_id)
+        if current and not current.done(): return
+        enrich_futures[lead_id]=enrich_pool.submit(enrich_lead_background,lead_id)
+
 def worker(jid,types,max_results,rings):
     db=SessionLocal(); job=db.get(Job,jid)
     try:
@@ -173,6 +211,8 @@ def worker(jid,types,max_results,rings):
                 db.add(lead); db.flush()
             if not db.scalar(select(JobLead).where(JobLead.job_id==jid,JobLead.lead_id==lead.id)):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
+            db.commit()
+            if not lead.media_cached_at: queue_lead_enrichment(lead.id)
             return True
 
         with ThreadPoolExecutor(max_workers=workers,thread_name_prefix="places-nearby") as pool:
