@@ -10,7 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .communes import get_communes
+from .communes import get_communes,resolve_commune
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -67,6 +67,13 @@ def home(request:Request,db:Session=Depends(get_db)):
 
 @app.get("/search",response_class=HTMLResponse)
 def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
+
+@app.get("/api/communes/{code}/resolve")
+def api_resolve_commune(code:str):
+    try:
+        return {"ok":True,"commune":resolve_commune(code)}
+    except Exception as exc:
+        return {"ok":False,"error":str(exc)}
 
 @app.post("/search")
 def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...),radius:int=Form(1000),business_types:list[str]=Form(...),max_results:int=Form(20),rings:int=Form(1),db:Session=Depends(get_db)):
