@@ -8,9 +8,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select,func,text
 from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
-from .models import Job,Lead,JobLead
+from .models import Job,Lead,JobLead,LeadWebsite
 from .core import grid_points,normalize_phone,score
 from .places import Places
+from .site_generator import generate_lead_website
 from .config import settings
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
@@ -365,6 +366,39 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     try: reviews=places.reviews(lead.place_id)
     except Exception: pass
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
+
+@app.get("/leads/{lead_id}/web",response_class=HTMLResponse)
+def lead_web(lead_id:int,request:Request,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return RedirectResponse("/leads",303)
+    generated=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+    if not generated:
+        return tpl.TemplateResponse(request,"lead_web_empty.html",{"lead":lead})
+    try: site=json.loads(generated.content_json)
+    except (TypeError,json.JSONDecodeError): site={}
+    has_photo=False
+    try: has_photo=bool(Places().photos(lead.place_id,1))
+    except Exception: pass
+    return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"has_photo":has_photo})
+
+@app.post("/leads/{lead_id}/web/generate")
+def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return RedirectResponse("/leads",303)
+    reviews=[]
+    try: reviews=Places().reviews(lead.place_id)
+    except Exception: pass
+    try:
+        content=generate_lead_website(lead,reviews)
+        row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+        if row:
+            row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
+        else:
+            db.add(LeadWebsite(lead_id=lead_id,content_json=json.dumps(content,ensure_ascii=False),model=settings().openai_model))
+        db.commit()
+    except Exception:
+        db.rollback()
+    return RedirectResponse(f"/leads/{lead_id}/web",303)
 
 @app.get("/api/leads/{lead_id}/photos")
 def api_lead_photos(lead_id:int,db:Session=Depends(get_db)):
