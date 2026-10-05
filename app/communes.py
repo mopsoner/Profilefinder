@@ -80,3 +80,13 @@ def get_or_resolve_commune(code):
     cached=_load_cache().get(code)
     if cached and cached.get("google_place_id") and cached.get("latitude") is not None and cached.get("longitude") is not None: return cached
     result=resolve_commune(code); cache=_load_cache(); cache[code]=result; _save_cache(cache); return result
+
+def force_resolve_commune(code):
+    result=resolve_commune(code)
+    cache=_load_cache(); cache[code]=result; _save_cache(cache)
+    return result
+
+def commune_stats():
+    rows=get_communes()
+    resolved=sum(1 for x in rows if x.get("google_place_id") and x.get("latitude") is not None and x.get("longitude") is not None)
+    return {"total":len(rows),"resolved":resolved,"missing":len(rows)-resolved}
