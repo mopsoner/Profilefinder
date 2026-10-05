@@ -4,7 +4,7 @@ from fastapi import FastAPI,Depends,Form,Request
 from fastapi.responses import HTMLResponse,RedirectResponse,StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select,func
+from sqlalchemy import select,func,text
 from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
@@ -12,6 +12,12 @@ from .core import grid_points,normalize_phone,score
 from .places import Places
 
 Base.metadata.create_all(engine)
+# Lightweight SQLite migration for search parameters added after V1.
+with engine.begin() as conn:
+    if engine.dialect.name=="sqlite":
+        cols={row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))}
+        if "max_results" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN max_results INTEGER DEFAULT 20"))
+        if "rings" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN rings INTEGER DEFAULT 1"))
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 tpl=Jinja2Templates(directory="app/templates")
@@ -59,13 +65,26 @@ def home(request:Request,db:Session=Depends(get_db)):
     return tpl.TemplateResponse(request,"index.html",{"leads":db.scalar(select(func.count()).select_from(Lead)) or 0,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":db.scalars(select(Job).order_by(Job.id.desc()).limit(8)).all()})
 
 @app.get("/search",response_class=HTMLResponse)
-def search_page(request:Request): return tpl.TemplateResponse(request,"search.html",{"types":TYPES})
+def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
 
 @app.post("/search")
 def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...),radius:int=Form(1000),business_types:list[str]=Form(...),max_results:int=Form(20),rings:int=Form(1),db:Session=Depends(get_db)):
-    job=Job(city=city,latitude=latitude,longitude=longitude,radius=radius,types=json.dumps(business_types)); db.add(job); db.commit(); db.refresh(job)
+    job=Job(city=city,latitude=latitude,longitude=longitude,radius=radius,types=json.dumps(business_types),max_results=max_results,rings=rings); db.add(job); db.commit(); db.refresh(job)
     threading.Thread(target=worker,args=(job.id,business_types,max_results,rings),daemon=True).start()
     return RedirectResponse("/jobs",303)
+
+@app.post("/search/rerun/{job_id}")
+def rerun_search(job_id:int,db:Session=Depends(get_db)):
+    source=db.get(Job,job_id)
+    if not source: return RedirectResponse("/search",303)
+    try: business_types=json.loads(source.types)
+    except (TypeError,json.JSONDecodeError): business_types=[]
+    max_results=source.max_results or 20
+    rings=source.rings if source.rings is not None else 1
+    job=Job(city=source.city,latitude=source.latitude,longitude=source.longitude,radius=source.radius,types=source.types,max_results=max_results,rings=rings)
+    db.add(job); db.commit(); db.refresh(job)
+    threading.Thread(target=worker,args=(job.id,business_types,max_results,rings),daemon=True).start()
+    return RedirectResponse("/ops",303)
 
 @app.get("/jobs",response_class=HTMLResponse)
 def jobs(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"jobs.html",{"jobs":db.scalars(select(Job).order_by(Job.id.desc())).all()})
