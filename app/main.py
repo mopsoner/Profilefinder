@@ -112,7 +112,7 @@ def worker(jid,types,max_results,rings):
     db=SessionLocal(); job=db.get(Job,jid)
     try:
         job.status="running"; job.started_at=datetime.utcnow(); db.commit()
-        seen={}; client=Places()
+        seen_ids=set(); client=Places()
         points=grid_points(job.latitude,job.longitude,job.radius,rings)
         calls=[(lat,lng,typ) for lat,lng in points for typ in types]
         total_calls=max(1,len(calls)); completed_calls=0
@@ -122,25 +122,17 @@ def worker(jid,types,max_results,rings):
             lat,lng,typ=item
             return typ,client.nearby(lat,lng,job.radius,typ,max_results)
 
-        with ThreadPoolExecutor(max_workers=workers,thread_name_prefix="places-nearby") as pool:
-            futures=[pool.submit(nearby_call,item) for item in calls]
-            for future in as_completed(futures):
-                typ,places=future.result()
-                for place in places:
-                    if place.get("id"): seen[place["id"]]=(place,typ)
-                completed_calls+=1
-                job.total_found=len(seen)
-                job.error=f"PROGRESS:{completed_calls}/{total_calls}"
-                db.commit()
-
-        job.total_found=len(seen)
-        for pid,(place,typ) in seen.items():
+        def process_place(place,typ):
+            pid=place.get("id")
+            if not pid or pid in seen_ids: return False
+            seen_ids.add(pid)
             phone=place.get("internationalPhoneNumber") or place.get("nationalPhoneNumber")
-            website=place.get("websiteUri")
-            if not phone: continue
+            if not phone: return False
             digits=normalize_phone(phone)
-            if not digits: continue
-            lead=db.scalar(select(Lead).where(Lead.place_id==pid)); loc=place.get("location",{})
+            if not digits: return False
+            website=place.get("websiteUri")
+            lead=db.scalar(select(Lead).where(Lead.place_id==pid))
+            loc=place.get("location",{})
             values=dict(name=place.get("displayName",{}).get("text","Unnamed"),business_type=typ,city=job.city,address=place.get("formattedAddress"),phone=phone,phone_digits=digits,whatsapp_url="https://wa.me/"+digits,website=website,reviews_count=place.get("userRatingCount") or 0,rating=place.get("rating"),latitude=loc.get("latitude"),longitude=loc.get("longitude"),score=score(place.get("userRatingCount") or 0,website,phone),updated_at=datetime.utcnow())
             if lead:
                 for key,value in values.items(): setattr(lead,key,value)
@@ -150,11 +142,26 @@ def worker(jid,types,max_results,rings):
                     review_time=client.oldest_review_time(pid)
                     if review_time: google_activity_at=datetime.fromisoformat(review_time.replace("Z","+00:00")).replace(tzinfo=None)
                 except Exception: pass
-                lead=Lead(place_id=pid,google_activity_at=google_activity_at,**values); db.add(lead); db.flush()
+                lead=Lead(place_id=pid,google_activity_at=google_activity_at,**values)
+                db.add(lead); db.flush()
             if not db.scalar(select(JobLead).where(JobLead.job_id==jid,JobLead.lead_id==lead.id)):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
-        db.flush()
-        job.total_filtered=db.scalar(select(func.count()).select_from(JobLead).where(JobLead.job_id==jid))
+            return True
+
+        with ThreadPoolExecutor(max_workers=workers,thread_name_prefix="places-nearby") as pool:
+            futures=[pool.submit(nearby_call,item) for item in calls]
+            for future in as_completed(futures):
+                typ,places=future.result()
+                for place in places:
+                    process_place(place,typ)
+                completed_calls+=1
+                job.total_found=len(seen_ids)
+                job.total_filtered=db.scalar(select(func.count()).select_from(JobLead).where(JobLead.job_id==jid)) or 0
+                job.error=f"PROGRESS:{completed_calls}/{total_calls}"
+                db.commit()
+
+        job.total_found=len(seen_ids)
+        job.total_filtered=db.scalar(select(func.count()).select_from(JobLead).where(JobLead.job_id==jid)) or 0
         job.status="completed"; job.error=None; job.finished_at=datetime.utcnow(); db.commit()
     except Exception as exc:
         job.status="failed"; job.error=str(exc); job.finished_at=datetime.utcnow(); db.commit()
