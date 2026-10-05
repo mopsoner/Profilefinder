@@ -18,13 +18,24 @@
 <label>Anneaux de grille<input name="rings" type="number" min="0" max="5" value="1"></label>
 <label>Max / appel<input name="max_results" type="number" min="1" max="20" value="20"></label>
 </div>
-<h3>Types d'entreprise</h3><div class="checks">{% for x in types %}<label><input type="checkbox" name="business_types" value="{{x}}"> {{x}}</label>{% endfor %}</div><button>Lancer la recherche</button></form>
+<div class="type-picker-head"><div><h3>Types d'entreprise</h3><p class="muted">Catalogue Google Places · sélectionne les activités à rechercher.</p></div><span id="type-count">0 sélectionné</span></div>
+<div class="type-toolbar"><input id="type-search" type="search" placeholder="Rechercher un type : restaurant, barber, hôtel…"><button type="button" class="secondary" id="select-visible">Tout sélectionner</button><button type="button" class="secondary" id="clear-types">Tout désélectionner</button></div>
+<div class="type-categories">{% for category, items in type_categories.items() %}<details class="type-category"><summary><span>{{category}}</span><span class="category-meta">{{items|length}} types · <button type="button" class="category-toggle">Sélectionner</button></span></summary><div class="checks">{% for x in items %}<label class="type-option" data-search="{{x|replace('_',' ')}}"><input type="checkbox" name="business_types" value="{{x}}"> <span>{{x|replace('_',' ')}}</span><small>{{x}}</small></label>{% endfor %}</div></details>{% endfor %}</div>
+<button>Lancer la recherche</button></form>
 <script>
 (function(){
 const radios=document.querySelectorAll('input[name="location_mode"]'), box=document.getElementById('commune-mode'), select=document.getElementById('commune-select'), city=document.getElementById('city'), lat=document.getElementById('latitude'), lng=document.getElementById('longitude'), info=document.getElementById('commune-info');
 function mode(){const isCommune=document.querySelector('input[name="location_mode"]:checked').value==='commune';box.style.display=isCommune?'block':'none';city.readOnly=isCommune;lat.readOnly=isCommune;lng.readOnly=isCommune;if(!isCommune){city.value='';lat.value='';lng.value='';}}
 async function commune(){const o=select.options[select.selectedIndex];city.value='';lat.value='';lng.value='';if(!o||!o.value){info.textContent='Sélectionne une commune : Google Places fournit son Place ID et ses coordonnées.';return;}if(o.dataset.placeId&&o.dataset.lat&&o.dataset.lng){city.value=o.dataset.name;lat.value=o.dataset.lat;lng.value=o.dataset.lng;info.textContent='Référentiel Google Places · Place ID '+o.dataset.placeId+' · '+o.dataset.lat+', '+o.dataset.lng;return;}select.disabled=true;info.textContent='Commune non initialisée : résolution Google Places…';try{const r=await fetch('/api/communes/'+encodeURIComponent(o.value)+'/resolve');const data=await r.json();if(!data.ok)throw new Error(data.error||'Erreur Google Places');const p=data.commune;city.value=p.name;lat.value=p.latitude;lng.value=p.longitude;o.dataset.placeId=p.google_place_id;o.dataset.lat=p.latitude;o.dataset.lng=p.longitude;info.textContent='Google Places · Place ID '+p.google_place_id+' · '+p.latitude+', '+p.longitude;}catch(e){info.textContent='Impossible de résoudre cette commune via Google Places : '+e.message;}finally{select.disabled=false;}}
 radios.forEach(r=>r.addEventListener('change',mode));select.addEventListener('change',commune);mode();
+const typeSearch=document.getElementById('type-search'),typeCount=document.getElementById('type-count'),options=Array.from(document.querySelectorAll('.type-option'));
+function updateTypeCount(){const n=options.filter(x=>x.querySelector('input').checked).length;typeCount.textContent=n+' sélectionné'+(n>1?'s':'');}
+function filterTypes(){const q=typeSearch.value.toLocaleLowerCase('fr').trim();options.forEach(x=>x.hidden=!!q&&!x.dataset.search.toLocaleLowerCase('fr').includes(q));document.querySelectorAll('.type-category').forEach(d=>{const visible=Array.from(d.querySelectorAll('.type-option')).some(x=>!x.hidden);d.hidden=!visible;if(q&&visible)d.open=true;});}
+typeSearch.addEventListener('input',filterTypes);options.forEach(x=>x.querySelector('input').addEventListener('change',updateTypeCount));
+document.getElementById('select-visible').addEventListener('click',()=>{options.filter(x=>!x.hidden).forEach(x=>x.querySelector('input').checked=true);updateTypeCount();});
+document.getElementById('clear-types').addEventListener('click',()=>{options.forEach(x=>x.querySelector('input').checked=false);updateTypeCount();});
+document.querySelectorAll('.category-toggle').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const d=b.closest('.type-category'),visible=Array.from(d.querySelectorAll('.type-option')).filter(x=>!x.hidden),all=visible.length&&visible.every(x=>x.querySelector('input').checked);visible.forEach(x=>x.querySelector('input').checked=!all);b.textContent=all?'Sélectionner':'Désélectionner';updateTypeCount();}));
+updateTypeCount();
 })();
 </script>
 <h2>Recherches précédentes</h2>
