@@ -56,15 +56,27 @@ def add_department(code):
     with httpx.Client(timeout=30) as client:
         r=client.get(f"{GEO_URL}/departements/{code}")
         r.raise_for_status(); dep=r.json()
-        r=client.get(f"{GEO_URL}/departements/{code}/communes",params={"fields":"nom,code","format":"json"})
+        r=client.get(f"{GEO_URL}/departements/{code}/communes",params={"fields":"nom,code,codesPostaux","format":"json"})
         r.raise_for_status(); communes=r.json()
     if not communes: raise RuntimeError(f"Aucune commune trouvée pour le département {code}")
     data=_load_cache()
     existing=data["departments"].get(code,{}).get("communes",{})
-    data["departments"][code]={"code":code,"name":dep["nom"],"communes":{x["code"]:{**existing.get(x["code"],{}),"code":x["code"],"name":x["nom"],"resolved":_is_resolved(existing.get(x["code"],{}))} for x in communes}}
+    data["departments"][code]={"code":code,"name":dep["nom"],"communes":{x["code"]:{**existing.get(x["code"],{}),"code":x["code"],"name":x["nom"],"postal_codes":x.get("codesPostaux",[]),"resolved":_is_resolved(existing.get(x["code"],{}))} for x in communes}}
     _save_cache(data)
     logger.info("DEPARTMENT_ADD code=%s name=%s communes=%s",code,dep["nom"],len(communes))
     return data["departments"][code]
+
+def refresh_department_metadata(code):
+    code=code.strip().upper()
+    data=_load_cache(); current=data["departments"].get(code)
+    if not current: return add_department(code)
+    with httpx.Client(timeout=30) as client:
+        r=client.get(f"{GEO_URL}/departements/{code}/communes",params={"fields":"nom,code,codesPostaux","format":"json"})
+        r.raise_for_status(); rows=r.json()
+    for x in rows:
+        old=current["communes"].get(x["code"],{})
+        current["communes"][x["code"]]={**old,"code":x["code"],"name":x["nom"],"postal_codes":x.get("codesPostaux",[]),"resolved":_is_resolved(old)}
+    _save_cache(data); return current
 
 def resolve_commune(code,department_code="971"):
     data=_load_cache(); dep=data["departments"].get(department_code)
@@ -81,7 +93,8 @@ def resolve_commune(code,department_code="971"):
     exact=[p for p in places if norm((p.get("displayName") or {}).get("text"))==norm(name)]
     place=(exact or places)[0]; loc=place.get("location") or {}
     if loc.get("latitude") is None or loc.get("longitude") is None: raise RuntimeError(f"Google Places n'a pas renvoyé de coordonnées pour {name}")
-    return {"code":code,"name":name,"department_code":department_code,"department_name":dep_name,"google_place_id":place.get("id"),"google_name":(place.get("displayName") or {}).get("text"),"formatted_address":place.get("formattedAddress"),"latitude":loc["latitude"],"longitude":loc["longitude"],"types":place.get("types",[]),"resolved":True,"resolved_at":datetime.now(timezone.utc).isoformat()}
+    postal_codes=dep["communes"][code].get("postal_codes",[])
+    return {"code":code,"name":name,"postal_codes":postal_codes,"department_code":department_code,"department_name":dep_name,"google_place_id":place.get("id"),"google_name":(place.get("displayName") or {}).get("text"),"formatted_address":place.get("formattedAddress"),"latitude":loc["latitude"],"longitude":loc["longitude"],"types":place.get("types",[]),"resolved":True,"resolved_at":datetime.now(timezone.utc).isoformat()}
 
 def force_resolve_commune(code,department_code="971"):
     result=resolve_commune(code,department_code); data=_load_cache()
@@ -93,6 +106,8 @@ def get_or_resolve_commune(code,department_code="971"):
     return force_resolve_commune(code,department_code)
 
 def initialize_department(department_code):
+    try: refresh_department_metadata(department_code)
+    except Exception as exc: logger.warning("DEPARTMENT_METADATA_REFRESH_ERROR code=%s error=%s",department_code,exc)
     data=_load_cache(); dep=data["departments"].get(department_code)
     if not dep: raise ValueError("Département inconnu")
     missing=[x for x in dep["communes"].values() if not _is_resolved(x)]
