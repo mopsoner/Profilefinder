@@ -27,7 +27,23 @@ def startup_initialize_reference_data():
     threading.Thread(target=initialize_communes,daemon=True,name="commune-init").start()
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 tpl=Jinja2Templates(directory="app/templates")
-TYPES=["restaurant","bar","bakery","meal_takeaway","beauty_salon","hair_care","laundry","car_repair","car_wash","plumber","electrician","painter","locksmith","moving_company","home_goods_store","furniture_store","hardware_store","florist","pet_store","veterinary_care","gym","spa","real_estate_agency","clothing_store","shoe_store","jewelry_store","electronics_store","convenience_store"]
+TYPE_CATEGORIES={
+"Restauration & boissons":["restaurant","african_restaurant","caribbean_restaurant","french_restaurant","italian_restaurant","chinese_restaurant","indian_restaurant","japanese_restaurant","korean_restaurant","thai_restaurant","mexican_restaurant","mediterranean_restaurant","seafood_restaurant","pizza_restaurant","fast_food_restaurant","hamburger_restaurant","sandwich_shop","sushi_restaurant","steak_house","vegan_restaurant","vegetarian_restaurant","bakery","cafe","coffee_shop","bar","cocktail_bar","pub","sports_bar","wine_bar","juice_shop","ice_cream_shop","dessert_shop","meal_takeaway","meal_delivery"],
+"Beauté & bien-être":["barber_shop","beautician","beauty_salon","hair_care","hair_salon","makeup_artist","nail_salon","massage","massage_spa","skin_care_clinic","spa","tanning_studio","wellness_center","yoga_studio"],
+"Automobile & mobilité":["car_dealer","car_rental","car_repair","car_wash","tire_shop","truck_dealer","auto_parts_store","gas_station","electric_vehicle_charging_station"],
+"Artisans & services":["electrician","plumber","painter","locksmith","roofing_contractor","moving_company","laundry","tailor","florist","courier_service","shipping_service","storage","consultant","marketing_consultant","employment_agency","insurance_agency","lawyer","accounting","telecommunications_service_provider","catering_service"],
+"Commerce & boutiques":["store","general_store","convenience_store","grocery_store","supermarket","hypermarket","discount_store","food_store","butcher_shop","farmers_market","market","clothing_store","womens_clothing_store","shoe_store","jewelry_store","cosmetics_store","electronics_store","cell_phone_store","furniture_store","home_goods_store","home_improvement_store","hardware_store","building_materials_store","garden_center","gift_shop","book_store","toy_store","pet_store","bicycle_store","sporting_goods_store","sportswear_store","thrift_store","wholesaler"],
+"Santé":["doctor","dentist","dental_clinic","medical_clinic","medical_center","medical_lab","hospital","general_hospital","pharmacy","drugstore","physiotherapist","chiropractor","veterinary_care","foot_care"],
+"Sport & loisirs":["gym","fitness_center","sports_club","sports_coaching","sports_complex","sports_school","swimming_pool","tennis_court","golf_course","dance_hall","bowling_alley","amusement_center","amusement_park","indoor_playground","video_arcade","paintball_center","go_karting_venue"],
+"Événementiel & tourisme":["event_venue","wedding_venue","banquet_hall","night_club","live_music_venue","concert_hall","convention_center","tour_agency","travel_agency","tourist_information_center","tourist_attraction","visitor_center","marina"],
+"Hébergement":["hotel","resort_hotel","motel","hostel","guest_house","bed_and_breakfast","lodging","inn","cottage","campground","camping_cabin","farmstay"],
+"Immobilier & habitat":["real_estate_agency","apartment_building","apartment_complex","condominium_complex","housing_complex"],
+"Entreprises & professionnels":["business_center","corporate_office","coworking_space","farm","manufacturer","supplier","association_or_organization","non_profit_organization"],
+"Éducation":["preschool","primary_school","secondary_school","school","university","educational_institution","research_institute","library"],
+"Culture":["art_gallery","art_museum","art_studio","museum","performing_arts_theater","cultural_center","historical_place","historical_landmark"],
+"Transport":["taxi_service","chauffeur_service","transportation_service","ferry_service","ferry_terminal","bus_station","train_station","airport","international_airport"]
+}
+TYPES=list(dict.fromkeys(t for values in TYPE_CATEGORIES.values() for t in values))
 
 def worker(jid,types,max_results,rings):
     db=SessionLocal(); job=db.get(Job,jid)
@@ -81,7 +97,7 @@ def home(request:Request,db:Session=Depends(get_db)):
     return tpl.TemplateResponse(request,"index.html",{"leads":total,"new_24h":new_24h,"new_7d":new_7d,"no_website":no_website,"high_score":high_score,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":recent_jobs,"recent_leads":recent_leads,"top_leads":top_leads,"latest_job":latest_job})
 
 @app.get("/search",response_class=HTMLResponse)
-def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
+def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"type_categories":TYPE_CATEGORIES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
 
 @app.get("/api/communes/{code}/resolve")
 def api_resolve_commune(code:str):
