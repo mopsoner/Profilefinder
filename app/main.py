@@ -22,10 +22,16 @@ def worker(jid,types,max_results,rings):
     try:
         job.status="running"; job.started_at=datetime.utcnow(); db.commit()
         seen={}; client=Places()
-        for lat,lng in grid_points(job.latitude,job.longitude,job.radius,rings):
+        points=grid_points(job.latitude,job.longitude,job.radius,rings)
+        total_calls=max(1,len(points)*len(types)); completed_calls=0
+        for lat,lng in points:
             for typ in types:
                 for place in client.nearby(lat,lng,job.radius,typ,max_results):
                     if place.get("id"): seen[place["id"]]=(place,typ)
+                completed_calls += 1
+                job.total_found=len(seen)
+                job.error=f"PROGRESS:{completed_calls}/{total_calls}"
+                db.commit()
         job.total_found=len(seen)
         for pid,(place,typ) in seen.items():
             phone=place.get("internationalPhoneNumber") or place.get("nationalPhoneNumber")
@@ -43,7 +49,7 @@ def worker(jid,types,max_results,rings):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
         db.flush()
         job.total_filtered=db.scalar(select(func.count()).select_from(JobLead).where(JobLead.job_id==jid))
-        job.status="completed"; job.finished_at=datetime.utcnow(); db.commit()
+        job.status="completed"; job.error=None; job.finished_at=datetime.utcnow(); db.commit()
     except Exception as exc:
         job.status="failed"; job.error=str(exc); job.finished_at=datetime.utcnow(); db.commit()
     finally: db.close()
@@ -63,6 +69,28 @@ def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...)
 
 @app.get("/jobs",response_class=HTMLResponse)
 def jobs(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"jobs.html",{"jobs":db.scalars(select(Job).order_by(Job.id.desc())).all()})
+
+@app.get("/ops",response_class=HTMLResponse)
+def ops(request:Request,db:Session=Depends(get_db)):
+    rows=db.scalars(select(Job).order_by(Job.id.desc()).limit(100)).all()
+    now=datetime.utcnow()
+    running=sum(1 for x in rows if x.status=="running")
+    failed=sum(1 for x in rows if x.status=="failed")
+    completed=sum(1 for x in rows if x.status=="completed")
+    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now})
+
+@app.get("/api/ops")
+def api_ops(db:Session=Depends(get_db)):
+    rows=db.scalars(select(Job).order_by(Job.id.desc()).limit(100)).all()
+    def payload(x):
+        progress=None
+        if x.status=="completed": progress=100
+        elif x.error and x.error.startswith("PROGRESS:"):
+            try:
+                done,total=map(int,x.error.split(":",1)[1].split("/")); progress=round(done*100/total)
+            except (ValueError,ZeroDivisionError): pass
+        return {"id":x.id,"city":x.city,"status":x.status,"progress":progress,"total_found":x.total_found,"total_filtered":x.total_filtered,"error":None if (x.error or "").startswith("PROGRESS:") else x.error,"created_at":x.created_at.isoformat() if x.created_at else None,"started_at":x.started_at.isoformat() if x.started_at else None,"finished_at":x.finished_at.isoformat() if x.finished_at else None}
+    return [payload(x) for x in rows]
 
 @app.get("/leads",response_class=HTMLResponse)
 def leads(request:Request,q:str="",min_score:int=0,db:Session=Depends(get_db)):
