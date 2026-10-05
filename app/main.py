@@ -12,7 +12,7 @@ from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
 from .config import settings
-from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department
+from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -208,6 +208,14 @@ def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...)
         except Exception: postal_list=[]
     if not postal_list:
         postal_list=[x.strip() for x in postal_codes.split(",") if re.fullmatch(r"\\d{5}",x.strip())]
+    if commune_code:
+        try:
+            coverage=commune_coverage(commune_code)
+            latitude=coverage["latitude"]; longitude=coverage["longitude"]
+            radius=coverage["radius"]; rings=coverage["rings"]
+        except Exception:
+            # Keep the resolved commune centre and submitted parameters as a fallback.
+            pass
     job=Job(city=city,latitude=latitude,longitude=longitude,radius=radius,types=json.dumps(business_types),max_results=max_results,rings=rings,postal_codes=json.dumps(postal_list)); db.add(job); db.commit(); db.refresh(job)
     threading.Thread(target=worker,args=(job.id,business_types,max_results,rings),daemon=True).start()
     return RedirectResponse("/jobs",303)
