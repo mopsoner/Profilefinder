@@ -1,11 +1,13 @@
 import logging
 import httpx
+from .config import settings
 
-URL="https://geo.api.gouv.fr/departements/971/communes"
+TEXT_SEARCH_URL="https://places.googleapis.com/v1/places:searchText"
 logger=logging.getLogger("profilefinder.communes")
 
-# Official INSEE COG 2026 list. Coordinates are refreshed from geo.api.gouv.fr.
-FALLBACK_NAMES=[
+# Official INSEE COG 2026 list for department 971. Google Places resolves the
+# operational Place ID and coordinates when the user selects a commune.
+COMMUNES=[
 ("97101","Les Abymes"),("97102","Anse-Bertrand"),("97103","Baie-Mahault"),("97104","Baillif"),
 ("97105","Basse-Terre"),("97106","Bouillante"),("97107","Capesterre-Belle-Eau"),
 ("97108","Capesterre-de-Marie-Galante"),("97111","Deshaies"),("97110","La Désirade"),
@@ -18,17 +20,43 @@ FALLBACK_NAMES=[
 ]
 
 def get_communes():
-    try:
-        r=httpx.get(URL,params={"fields":"nom,code,centre","format":"json"},timeout=10)
-        r.raise_for_status()
-        rows=[]
-        for x in r.json():
-            coords=(x.get("centre") or {}).get("coordinates") or []
-            if len(coords)==2:
-                rows.append({"code":x["code"],"name":x["nom"],"latitude":coords[1],"longitude":coords[0]})
-        if len(rows)==32:
-            return sorted(rows,key=lambda x:x["name"])
-        logger.warning("Unexpected commune count from geo.api.gouv.fr: %s",len(rows))
-    except Exception as exc:
-        logger.warning("Unable to refresh Guadeloupe communes: %s",exc)
-    return [{"code":code,"name":name,"latitude":None,"longitude":None} for code,name in sorted(FALLBACK_NAMES,key=lambda x:x[1])]
+    return [{"code":code,"name":name} for code,name in sorted(COMMUNES,key=lambda x:x[1])]
+
+def resolve_commune(code):
+    row=next(((c,n) for c,n in COMMUNES if c==code),None)
+    if not row:
+        raise ValueError("Commune de Guadeloupe inconnue")
+    _,name=row
+    key=settings().google_places_api_key
+    if not key:
+        raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
+    headers={
+        "Content-Type":"application/json",
+        "X-Goog-Api-Key":key,
+        "X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location,places.types"
+    }
+    body={"textQuery":f"{name}, Guadeloupe, France","languageCode":"fr","regionCode":"FR","maxResultCount":5}
+    response=httpx.post(TEXT_SEARCH_URL,json=body,headers=headers,timeout=30)
+    response.raise_for_status()
+    places=response.json().get("places",[])
+    if not places:
+        raise RuntimeError(f"Google Places n'a trouvé aucune correspondance pour {name}")
+    # Prefer the exact commune name; otherwise keep Google's first ranked result.
+    def norm(v): return (v or "").casefold().replace("-"," ").replace("'"," ")
+    exact=[p for p in places if norm((p.get("displayName") or {}).get("text"))==norm(name)]
+    place=(exact or places)[0]
+    loc=place.get("location") or {}
+    if loc.get("latitude") is None or loc.get("longitude") is None:
+        raise RuntimeError(f"Google Places n'a pas renvoyé de coordonnées pour {name}")
+    result={
+        "code":code,
+        "name":name,
+        "google_place_id":place.get("id"),
+        "google_name":(place.get("displayName") or {}).get("text"),
+        "formatted_address":place.get("formattedAddress"),
+        "latitude":loc["latitude"],
+        "longitude":loc["longitude"],
+        "types":place.get("types",[])
+    }
+    logger.info("COMMUNE_RESOLVE code=%s name=%s place_id=%s lat=%s lng=%s",code,name,result["google_place_id"],result["latitude"],result["longitude"])
+    return result
