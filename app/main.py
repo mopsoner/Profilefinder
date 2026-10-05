@@ -388,11 +388,12 @@ def lead_web(lead_id:int,request:Request,db:Session=Depends(get_db)):
 def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
-    reviews=[]
-    try: reviews=Places().reviews(lead.place_id)
-    except Exception: pass
     try:
-        content=generate_lead_website(lead,reviews)
+        insights=json.loads(lead.insights_json or "{}")
+    except (TypeError,json.JSONDecodeError):
+        insights={}
+    try:
+        content=generate_lead_website(lead,insights)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
             row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
