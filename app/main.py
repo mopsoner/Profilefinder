@@ -455,7 +455,23 @@ def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(g
     try: site=json.loads(generated.content_json)
     except (TypeError,json.JSONDecodeError): site={}
     pages=site.get("pages") or []
-    current=next((x for x in pages if x.get("slug")==page),pages[0] if pages else {})
+    # Backward compatibility: sites generated before the multi-page schema
+    # stored the old landing-page structure. Render them as one page until
+    # they are regenerated.
+    if not pages:
+        legacy_sections=[]
+        if site.get("about_title") or site.get("about_text"):
+            legacy_sections.append({"title":site.get("about_title") or "À propos","text":site.get("about_text") or "","items":[],"example":False})
+        services=site.get("services") or []
+        if services:
+            legacy_sections.append({"title":"Nos services","text":"","items":[x.get("title","") for x in services if isinstance(x,dict)],"example":False})
+        strengths=site.get("strengths") or []
+        if strengths:
+            legacy_sections.append({"title":"Pourquoi nous découvrir","text":"","items":strengths,"example":False})
+        pages=[{"slug":"accueil","nav_label":"Accueil","title":site.get("headline") or lead.name,"intro":site.get("subheadline") or "","sections":legacy_sections}]
+        site.setdefault("site_title",lead.name)
+        site.setdefault("tagline",site.get("eyebrow") or "")
+    current=next((x for x in pages if isinstance(x,dict) and x.get("slug")==page),pages[0] if pages else {})
     photo_count=0
     try: photo_count=len(Places().photos(lead.place_id,10))
     except Exception: pass
