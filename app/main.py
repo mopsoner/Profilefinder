@@ -24,6 +24,8 @@ with engine.begin() as conn:
         if "max_results" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN max_results INTEGER DEFAULT 20"))
         if "rings" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN rings INTEGER DEFAULT 1"))
         if "postal_codes" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN postal_codes TEXT"))
+        if "kind" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN kind VARCHAR(30) DEFAULT 'search'"))
+        if "lead_id" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN lead_id INTEGER"))
         lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
@@ -396,32 +398,43 @@ def sites(request:Request,db:Session=Depends(get_db)):
     candidates=[x for x in candidates if x.id not in generated_ids]
     return tpl.TemplateResponse(request,"sites.html",{"generated":generated,"candidates":candidates})
 
-def generate_site_background(lead_id:int):
-    db=SessionLocal()
+def generate_site_background(lead_id:int,job_id:int):
+    db=SessionLocal(); job=db.get(Job,job_id)
     try:
+        if job:
+            job.status="running"; job.started_at=datetime.utcnow(); job.error="PROGRESS:0/1"; db.commit()
         lead=db.get(Lead,lead_id)
-        if not lead: return
+        if not lead: raise RuntimeError("Prospect introuvable")
         try: insights=json.loads(lead.insights_json or "{}")
         except (TypeError,json.JSONDecodeError): insights={}
         content=generate_lead_website(lead,insights)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
-            row.content_json=json.dumps(content,ensure_ascii=False)
-            row.model=settings().openai_model
-            row.updated_at=datetime.utcnow()
+            row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
         else:
             db.add(LeadWebsite(lead_id=lead_id,content_json=json.dumps(content,ensure_ascii=False),model=settings().openai_model))
+        if job:
+            job.status="completed"; job.total_found=1; job.total_filtered=1; job.error=None; job.finished_at=datetime.utcnow()
         db.commit()
-    except Exception:
-        db.rollback()
-    finally:
-        db.close()
+    except Exception as exc:
+        db.rollback(); job=db.get(Job,job_id)
+        if job:
+            job.status="failed"; job.error=str(exc); job.finished_at=datetime.utcnow(); db.commit()
+        raise
+    finally: db.close()
 
 def queue_site_generation(lead_id:int):
     with site_ai_lock:
         current=site_ai_futures.get(lead_id)
         if current and not current.done(): return False
-        future=site_ai_pool.submit(generate_site_background,lead_id)
+        db=SessionLocal()
+        try:
+            lead=db.get(Lead,lead_id)
+            if not lead: return False
+            job=Job(city=lead.name,latitude=lead.latitude or 0,longitude=lead.longitude or 0,radius=0,types="site_ai",max_results=1,rings=0,status="queued",kind="site_ai",lead_id=lead_id)
+            db.add(job); db.commit(); db.refresh(job); job_id=job.id
+        finally: db.close()
+        future=site_ai_pool.submit(generate_site_background,lead_id,job_id)
         site_ai_futures[lead_id]=future
         return True
 
