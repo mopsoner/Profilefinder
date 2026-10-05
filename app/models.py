@@ -38,7 +38,7 @@ class Lead(Base):
     latitude: Mapped[float|None]=mapped_column(Float,nullable=True)
     longitude: Mapped[float|None]=mapped_column(Float,nullable=True)
     score: Mapped[int]=mapped_column(default=0)
-    first_seen_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    google_activity_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)\n    first_seen_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
 class JobLead(Base):
