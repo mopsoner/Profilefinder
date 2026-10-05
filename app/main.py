@@ -11,7 +11,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead,LeadWebsite
 from .core import grid_points,normalize_phone,score
 from .places import Places
-from .site_generator import generate_lead_website
+from .site_generator import generate_lead_website,generate_site_images
 from .lead_insights import build_insights
 from .config import settings
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
@@ -408,6 +408,9 @@ def generate_site_background(lead_id:int,job_id:int):
         try: insights=json.loads(lead.insights_json or "{}")
         except (TypeError,json.JSONDecodeError): insights={}
         content=generate_lead_website(lead,insights)
+        if job:
+            job.error="PROGRESS:1/2"; db.commit()
+        content=generate_site_images(lead_id,content)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
             row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
