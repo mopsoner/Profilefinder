@@ -1,7 +1,7 @@
 import csv,io,json,threading
 from datetime import datetime
 from fastapi import FastAPI,Depends,Form,Request
-from fastapi.responses import HTMLResponse,RedirectResponse,StreamingResponse
+from fastapi.responses import HTMLResponse,RedirectResponse,StreamingResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select,func,text
@@ -165,7 +165,30 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
     jobs=db.scalars(select(Job).join(JobLead,JobLead.job_id==Job.id).where(JobLead.lead_id==lead_id).order_by(Job.id.desc())).all()
-    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs})
+    photos=[]
+    try: photos=Places().photos(lead.place_id,10)
+    except Exception: pass
+    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos})
+
+@app.get("/api/leads/{lead_id}/photos")
+def api_lead_photos(lead_id:int,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return {"photos":[]}
+    try:
+        photos=Places().photos(lead.place_id,10)
+        return {"photos":[{"url":f"/api/leads/{lead_id}/photos/{i}","width":p.get("widthPx"),"height":p.get("heightPx"),"attributions":p.get("authorAttributions",[])} for i,p in enumerate(photos)]}
+    except Exception as exc: return {"photos":[],"error":str(exc)}
+
+@app.get("/api/leads/{lead_id}/photos/{index}")
+def lead_photo(lead_id:int,index:int,db:Session=Depends(get_db)):
+    lead=db.get(Lead,lead_id)
+    if not lead: return Response(status_code=404)
+    try:
+        photos=Places().photos(lead.place_id,10)
+        if index<0 or index>=len(photos): return Response(status_code=404)
+        uri=Places().photo_media(photos[index]["name"],800,800)
+        return RedirectResponse(uri)
+    except Exception: return Response(status_code=404)
 
 @app.get("/export.csv")
 def export(db:Session=Depends(get_db)):
