@@ -43,6 +43,15 @@ class Lead(Base):
     first_seen_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
+class LeadWebsite(Base):
+    __tablename__="lead_websites"
+    id: Mapped[int]=mapped_column(primary_key=True)
+    lead_id: Mapped[int]=mapped_column(ForeignKey("leads.id"),unique=True,index=True)
+    content_json: Mapped[str]=mapped_column(Text)
+    model: Mapped[str|None]=mapped_column(String(80),nullable=True)
+    generated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
 class JobLead(Base):
     __tablename__="job_leads"
     id: Mapped[int]=mapped_column(primary_key=True)
