@@ -323,10 +323,13 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
     jobs=db.scalars(select(Job).join(JobLead,JobLead.job_id==Job.id).where(JobLead.lead_id==lead_id).order_by(Job.id.desc())).all()
-    photos=[]
-    try: photos=Places().photos(lead.place_id,10)
+    photos=[]; reviews=[]
+    places=Places()
+    try: photos=places.photos(lead.place_id,10)
     except Exception: pass
-    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos})
+    try: reviews=places.reviews(lead.place_id)
+    except Exception: pass
+    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
 
 @app.get("/api/leads/{lead_id}/photos")
 def api_lead_photos(lead_id:int,db:Session=Depends(get_db)):
