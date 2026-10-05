@@ -66,6 +66,18 @@ def add_department(code):
     logger.info("DEPARTMENT_ADD code=%s name=%s communes=%s",code,dep["nom"],len(communes))
     return data["departments"][code]
 
+def delete_department(code):
+    code=code.strip().upper()
+    data=_load_cache()
+    dep=data["departments"].get(code)
+    if not dep: raise ValueError("Département inconnu")
+    removed=len(dep.get("communes",{}))
+    name=dep.get("name",code)
+    del data["departments"][code]
+    _save_cache(data)
+    logger.info("DEPARTMENT_DELETE code=%s name=%s communes=%s",code,name,removed)
+    return {"code":code,"name":name,"communes_removed":removed}
+
 def refresh_department_metadata(code):
     code=code.strip().upper()
     data=_load_cache(); current=data["departments"].get(code)
