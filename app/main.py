@@ -15,7 +15,7 @@ Base.metadata.create_all(engine)
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 tpl=Jinja2Templates(directory="app/templates")
-TYPES=["restaurant","bar","bakery","meal_takeaway","beauty_salon","hair_care","laundry","car_repair","car_wash","plumber","electrician","painter","locksmith","moving_company","general_contractor","home_goods_store","furniture_store","hardware_store","florist","pet_store","veterinary_care","gym","spa","real_estate_agency","clothing_store","shoe_store","jewelry_store","electronics_store","convenience_store"]
+TYPES=["restaurant","bar","bakery","meal_takeaway","beauty_salon","hair_care","laundry","car_repair","car_wash","plumber","electrician","painter","locksmith","moving_company","home_goods_store","furniture_store","hardware_store","florist","pet_store","veterinary_care","gym","spa","real_estate_agency","clothing_store","shoe_store","jewelry_store","electronics_store","convenience_store"]
 
 def worker(jid,types,max_results,rings):
     db=SessionLocal(); job=db.get(Job,jid)
@@ -78,6 +78,13 @@ def ops(request:Request,db:Session=Depends(get_db)):
     failed=sum(1 for x in rows if x.status=="failed")
     completed=sum(1 for x in rows if x.status=="completed")
     return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now})
+
+@app.get("/api/ops/logs")
+def api_ops_logs():
+    from pathlib import Path
+    path=Path("data/logs/places.log")
+    if not path.exists(): return {"lines":[]}
+    return {"lines":path.read_text(encoding="utf-8",errors="replace").splitlines()[-200:]}
 
 @app.get("/api/ops")
 def api_ops(db:Session=Depends(get_db)):
