@@ -21,6 +21,8 @@ class Job(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     started_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     finished_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    kind: Mapped[str]=mapped_column(String(30),default="search")
+    lead_id: Mapped[int|None]=mapped_column(nullable=True)
 
 class Lead(Base):
     __tablename__="leads"
