@@ -3,12 +3,12 @@
 <form method="post" class="panel" id="search-form">
 <h3>Zone de recherche</h3>
 <div class="mode-switch">
-<label><input type="radio" name="location_mode" value="commune" checked> Commune de Guadeloupe</label>
+<label><input type="radio" name="location_mode" value="commune" checked> Toute la commune</label>
 <label><input type="radio" name="location_mode" value="custom"> Coordonnées personnalisées</label>
 </div>
 <div id="commune-mode">
 <label>Commune<select id="commune-select"><option value="">Choisir une commune…</option>{% for c in communes %}<option value="{{c.code}}" data-name="{{c.name}}" data-place-id="{{c.google_place_id or ''}}" data-lat="{{c.latitude if c.latitude is defined and c.latitude is not none else ''}}" data-lng="{{c.longitude if c.longitude is defined and c.longitude is not none else ''}}" data-postal="{{(c.postal_codes or [])|join(',')}}">{{c.name}}{% if c.postal_codes %} ({{c.postal_codes|join(", ")}}){% endif %}{% if c.resolved %} ✓{% endif %}</option>{% endfor %}</select></label>
-<p class="muted" id="commune-info">Sélectionne une commune : Google Places résoudra son Place ID et ses coordonnées.</p>
+<p class="muted" id="commune-info">Mode Toute la commune : ProfileFinder calcule automatiquement la couverture géographique puis conserve uniquement les codes postaux de la commune.</p>
 </div>
 <input type="hidden" id="commune-code" name="commune_code" value="">
 <input type="hidden" id="postal-codes" name="postal_codes" value="">
@@ -16,8 +16,8 @@
 <label>Ville<input id="city" name="city" required></label>
 <label>Latitude<input id="latitude" name="latitude" type="number" step="any" required></label>
 <label>Longitude<input id="longitude" name="longitude" type="number" step="any" required></label>
-<label>Rayon (m)<input name="radius" type="number" value="1000"></label>
-<label>Anneaux de grille<input name="rings" type="number" min="0" max="5" value="1"></label>
+<label class="manual-zone">Rayon (m)<input name="radius" type="number" value="1000"></label>
+<label class="manual-zone">Anneaux de grille<input name="rings" type="number" min="0" max="12" value="1"></label>
 <label>Max / appel<input name="max_results" type="number" min="1" max="20" value="20"></label>
 </div>
 <div class="type-picker-head"><div><h3>Types d'entreprise</h3><p class="muted">Catalogue Google Places · sélectionne les activités à rechercher.</p></div><span id="type-count">0 sélectionné</span></div>
@@ -27,7 +27,7 @@
 <script>
 (function(){
 const radios=document.querySelectorAll('input[name="location_mode"]'), box=document.getElementById('commune-mode'), select=document.getElementById('commune-select'), city=document.getElementById('city'), lat=document.getElementById('latitude'), lng=document.getElementById('longitude'), info=document.getElementById('commune-info'), postal=document.getElementById('postal-codes'), communeCode=document.getElementById('commune-code');
-function mode(){const isCommune=document.querySelector('input[name="location_mode"]:checked').value==='commune';box.style.display=isCommune?'block':'none';city.readOnly=isCommune;lat.readOnly=isCommune;lng.readOnly=isCommune;if(!isCommune){city.value='';lat.value='';lng.value='';postal.value='';communeCode.value='';}}
+function mode(){const isCommune=document.querySelector('input[name="location_mode"]:checked').value==='commune';box.style.display=isCommune?'block':'none';document.querySelectorAll('.manual-zone').forEach(x=>x.style.display=isCommune?'none':'');city.readOnly=isCommune;lat.readOnly=isCommune;lng.readOnly=isCommune;if(!isCommune){city.value='';lat.value='';lng.value='';postal.value='';communeCode.value='';}}
 async function commune(){const o=select.options[select.selectedIndex];city.value='';lat.value='';lng.value='';postal.value='';communeCode.value='';if(!o||!o.value){info.textContent='Sélectionne une commune : Google Places fournit son Place ID et ses coordonnées.';return;}communeCode.value=o.value;if(o.dataset.placeId&&o.dataset.lat&&o.dataset.lng){city.value=o.dataset.name;lat.value=o.dataset.lat;lng.value=o.dataset.lng;postal.value=o.dataset.postal||'';info.textContent='Référentiel Google Places · Place ID '+o.dataset.placeId+' · '+o.dataset.lat+', '+o.dataset.lng;return;}select.disabled=true;info.textContent='Commune non initialisée : résolution Google Places…';try{const r=await fetch('/api/communes/'+encodeURIComponent(o.value)+'/resolve');const data=await r.json();if(!data.ok)throw new Error(data.error||'Erreur Google Places');const p=data.commune;city.value=p.name;lat.value=p.latitude;lng.value=p.longitude;postal.value=(p.postal_codes||[]).join(',');o.dataset.postal=postal.value;o.dataset.placeId=p.google_place_id;o.dataset.lat=p.latitude;o.dataset.lng=p.longitude;info.textContent='Google Places · Place ID '+p.google_place_id+' · '+p.latitude+', '+p.longitude;}catch(e){info.textContent='Impossible de résoudre cette commune via Google Places : '+e.message;}finally{select.disabled=false;}}
 radios.forEach(r=>r.addEventListener('change',mode));select.addEventListener('change',commune);mode();
 const typeSearch=document.getElementById('type-search'),typeCount=document.getElementById('type-count'),options=Array.from(document.querySelectorAll('.type-option'));
