@@ -28,6 +28,11 @@ with engine.begin() as conn:
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
         if "insights_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_at DATETIME"))
+# Recalculate legacy lead scores whenever the scoring strategy changes.
+with SessionLocal() as score_db:
+    for score_lead in score_db.scalars(select(Lead)).all():
+        score_lead.score=score(score_lead.reviews_count,score_lead.website,score_lead.phone)
+    score_db.commit()
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
 @app.on_event("startup")
