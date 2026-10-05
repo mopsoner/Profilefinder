@@ -13,6 +13,7 @@ class Job(Base):
     types: Mapped[str]=mapped_column(Text)
     max_results: Mapped[int]=mapped_column(default=20)
     rings: Mapped[int]=mapped_column(default=1)
+    postal_codes: Mapped[str|None]=mapped_column(Text,nullable=True)
     status: Mapped[str]=mapped_column(String(20),default="queued")
     total_found: Mapped[int]=mapped_column(default=0)
     total_filtered: Mapped[int]=mapped_column(default=0)
