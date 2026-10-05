@@ -112,14 +112,8 @@ def force_resolve_commune(code,department_code="971"):
     result=resolve_commune(code,department_code); data=_load_cache()
     data["departments"][department_code]["communes"][code]=result; _save_cache(data); return result
 
-def commune_coverage(code):
-    """Return an automatic Nearby-search radius/ring count covering the commune contour."""
-    with httpx.Client(timeout=30) as client:
-        r=client.get(f"{GEO_URL}/communes/{code}",params={"geometry":"contour","format":"geojson"})
-        r.raise_for_status()
-        feature=r.json()
-    geometry=feature.get("geometry") or {}
-    coords=geometry.get("coordinates") or []
+def _coverage_from_geometry(code,geometry):
+    coords=(geometry or {}).get("coordinates") or []
     points=[]
     def collect(value):
         if isinstance(value,list) and len(value)>=2 and all(isinstance(x,(int,float)) for x in value[:2]):
@@ -131,15 +125,41 @@ def commune_coverage(code):
     min_lat=min(p[0] for p in points); max_lat=max(p[0] for p in points)
     min_lng=min(p[1] for p in points); max_lng=max(p[1] for p in points)
     center_lat=(min_lat+max_lat)/2; center_lng=(min_lng+max_lng)/2
+    import math
     lat_m=(max_lat-min_lat)*111320
-    lng_m=(max_lng-min_lng)*111320*max(__import__("math").cos(__import__("math").radians(center_lat)),.1)
-    # Existing grid_points uses a maximum 1.5 km step. Add margin so edge
-    # businesses are covered, then postal filtering removes neighbouring communes.
+    lng_m=(max_lng-min_lng)*111320*max(math.cos(math.radians(center_lat)),.1)
     half_span=max(lat_m,lng_m)/2
     radius=1500
-    rings=max(1,min(12,int(__import__("math").ceil((half_span+radius)/1500))))
+    rings=max(1,min(12,int(math.ceil((half_span+radius)/1500))))
     return {"latitude":center_lat,"longitude":center_lng,"radius":radius,"rings":rings,
             "bbox":[min_lat,min_lng,max_lat,max_lng]}
+
+def sync_commune_contour(code,department_code="971",force=False):
+    data=_load_cache()
+    commune=data["departments"].get(department_code,{}).get("communes",{}).get(code)
+    if not commune: raise ValueError("Commune inconnue dans ce département")
+    if not force and commune.get("contour") and commune.get("coverage"):
+        return commune["coverage"]
+    with httpx.Client(timeout=30) as client:
+        r=client.get(f"{GEO_URL}/communes/{code}",params={"geometry":"contour","format":"geojson"})
+        r.raise_for_status(); feature=r.json()
+    geometry=feature.get("geometry") or {}
+    coverage=_coverage_from_geometry(code,geometry)
+    commune["contour"]=geometry
+    commune["coverage"]=coverage
+    commune["contour_synced_at"]=datetime.now(timezone.utc).isoformat()
+    data["departments"][department_code]["communes"][code]=commune
+    _save_cache(data)
+    logger.info("COMMUNE_CONTOUR_OK department=%s code=%s rings=%s",department_code,code,coverage["rings"])
+    return coverage
+
+def commune_coverage(code,department_code="971"):
+    data=_load_cache()
+    commune=data["departments"].get(department_code,{}).get("communes",{}).get(code)
+    if not commune: raise ValueError("Commune inconnue dans ce département")
+    coverage=commune.get("coverage")
+    if coverage: return coverage
+    return sync_commune_contour(code,department_code)
 
 def get_or_resolve_commune(code,department_code="971"):
     data=_load_cache(); cached=data["departments"].get(department_code,{}).get("communes",{}).get(code)
@@ -167,6 +187,14 @@ def initialize_department(department_code):
             force_resolve_commune(x["code"],department_code)
             logger.info("COMMUNE_INIT_OK department=%s code=%s name=%s",department_code,x["code"],x["name"])
         except Exception as exc: logger.error("COMMUNE_INIT_ERROR department=%s code=%s name=%s error=%s",department_code,x["code"],x["name"],exc)
+    # Keep commune contours and precomputed search coverage in the local reference.
+    data=_load_cache(); dep=data["departments"].get(department_code) or {}
+    for x in dep.get("communes",{}).values():
+        if x.get("contour") and x.get("coverage"): continue
+        try:
+            sync_commune_contour(x["code"],department_code)
+        except Exception as exc:
+            logger.error("COMMUNE_CONTOUR_ERROR department=%s code=%s name=%s error=%s",department_code,x["code"],x.get("name"),exc)
 
 def initialize_communes():
     initialize_department("971")
