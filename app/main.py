@@ -33,6 +33,11 @@ with SessionLocal() as score_db:
     for score_lead in score_db.scalars(select(Lead)).all():
         score_lead.score=score(score_lead.reviews_count,score_lead.website,score_lead.phone)
     score_db.commit()
+SITE_AI_WORKERS=max(1,min(8,settings().google_places_workers))
+site_ai_pool=ThreadPoolExecutor(max_workers=SITE_AI_WORKERS,thread_name_prefix="site-ai")
+site_ai_futures={}
+site_ai_lock=threading.Lock()
+
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
 @app.on_event("startup")
@@ -413,7 +418,20 @@ def generate_site_background(lead_id:int):
         db.close()
 
 def queue_site_generation(lead_id:int):
-    threading.Thread(target=generate_site_background,args=(lead_id,),daemon=True,name=f"site-ai-{lead_id}").start()
+    with site_ai_lock:
+        current=site_ai_futures.get(lead_id)
+        if current and not current.done(): return False
+        future=site_ai_pool.submit(generate_site_background,lead_id)
+        site_ai_futures[lead_id]=future
+        return True
+
+def site_generation_status(lead_id:int):
+    with site_ai_lock:
+        future=site_ai_futures.get(lead_id)
+    if not future: return "idle"
+    if future.running(): return "running"
+    if not future.done(): return "queued"
+    return "error" if future.exception() else "completed"
 
 @app.post("/sites/{lead_id}/generate")
 def sites_generate(lead_id:int,db:Session=Depends(get_db)):
