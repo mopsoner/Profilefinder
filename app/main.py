@@ -19,6 +19,8 @@ with engine.begin() as conn:
         cols={row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))}
         if "max_results" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN max_results INTEGER DEFAULT 20"))
         if "rings" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN rings INTEGER DEFAULT 1"))
+        lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
+        if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
 @app.on_event("startup")
@@ -86,6 +88,24 @@ def type_label(value):
     return TYPE_LABELS.get(value,(value or "").replace("_"," ").capitalize())
 tpl.env.globals["type_label"]=type_label
 
+def google_age_label(lead):
+    if lead.google_activity_at:
+        days=(datetime.utcnow()-lead.google_activity_at).days
+        if days<=90: return "Récent"
+        if days>=730: return "Établi"
+        return "Actif"
+    return "Ancienneté inconnue"
+
+def detection_label(lead):
+    if not lead.first_seen_at: return "Inconnue"
+    days=(datetime.utcnow()-lead.first_seen_at).days
+    if days<=1: return "Nouveau"
+    if days<=7: return "Détecté récemment"
+    return "Déjà connu"
+
+tpl.env.globals["google_age_label"]=google_age_label
+tpl.env.globals["detection_label"]=detection_label
+
 def worker(jid,types,max_results,rings):
     db=SessionLocal(); job=db.get(Job,jid)
     try:
@@ -113,7 +133,12 @@ def worker(jid,types,max_results,rings):
             if lead:
                 for key,value in values.items(): setattr(lead,key,value)
             else:
-                lead=Lead(place_id=pid,**values); db.add(lead); db.flush()
+                google_activity_at=None
+                try:
+                    review_time=client.oldest_review_time(pid)
+                    if review_time: google_activity_at=datetime.fromisoformat(review_time.replace("Z","+00:00")).replace(tzinfo=None)
+                except Exception: pass
+                lead=Lead(place_id=pid,google_activity_at=google_activity_at,**values); db.add(lead); db.flush()
             if not db.scalar(select(JobLead).where(JobLead.job_id==jid,JobLead.lead_id==lead.id)):
                 db.add(JobLead(job_id=jid,lead_id=lead.id))
         db.flush()
