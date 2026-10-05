@@ -10,6 +10,7 @@ from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead
 from .core import grid_points,normalize_phone,score
 from .places import Places
+from .communes import get_communes
 
 Base.metadata.create_all(engine)
 # Lightweight SQLite migration for search parameters added after V1.
@@ -65,7 +66,7 @@ def home(request:Request,db:Session=Depends(get_db)):
     return tpl.TemplateResponse(request,"index.html",{"leads":db.scalar(select(func.count()).select_from(Lead)) or 0,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":db.scalars(select(Job).order_by(Job.id.desc()).limit(8)).all()})
 
 @app.get("/search",response_class=HTMLResponse)
-def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
+def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
 
 @app.post("/search")
 def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...),radius:int=Form(1000),business_types:list[str]=Form(...),max_results:int=Form(20),rings:int=Form(1),db:Session=Depends(get_db)):
