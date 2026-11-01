@@ -3,6 +3,7 @@ import io
 import json
 import math
 import shutil
+import sys
 import wave
 
 import pytest
@@ -45,6 +46,14 @@ def test_legacy_sites_and_remote_images():
     assert 'passwd' not in html
     assert html.count('data:image/svg+xml') == 2
     assert site_pages({'pages':None}, 'Entreprise')[0]['title'] == 'Entreprise'
+
+
+def test_missing_dependencies_are_named_and_rechecked(monkeypatch):
+    monkeypatch.setattr(video_ads.shutil,'which',lambda _: None)
+    monkeypatch.setitem(sys.modules,'playwright.sync_api',None)
+    assert video_ads.video_dependencies()['missing']==['FFmpeg','ffprobe','Playwright','Chromium']
+    monkeypatch.setattr(video_ads.shutil,'which',lambda name:'/usr/bin/'+name)
+    assert video_ads.video_dependencies()['missing']==['Playwright']
 
 
 @pytest.fixture

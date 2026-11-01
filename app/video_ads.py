@@ -5,7 +5,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import threading
-from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
@@ -30,18 +29,22 @@ pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='video-ads')
 slot = threading.BoundedSemaphore(1)
 
 
-@lru_cache
-def video_tools_ready():
-    if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
-        return False
+def video_dependencies():
+    tools = {'FFmpeg': bool(shutil.which('ffmpeg')), 'ffprobe': bool(shutil.which('ffprobe')),
+             'Playwright': False, 'Chromium': bool(shutil.which('chromium') or shutil.which('chromium-browser'))}
     try:
         from playwright.sync_api import sync_playwright
-        if shutil.which('chromium') or shutil.which('chromium-browser'):
-            return True
-        with sync_playwright() as playwright:
-            return Path(playwright.chromium.executable_path).is_file()
+        tools['Playwright'] = True
+        if not tools['Chromium']:
+            with sync_playwright() as playwright:
+                tools['Chromium'] = Path(playwright.chromium.executable_path).is_file()
     except Exception:
-        return False
+        pass
+    return {'missing': [name for name, present in tools.items() if not present]}
+
+
+def video_tools_ready():
+    return not video_dependencies()['missing']
 
 
 async def read_json(request, maximum=29 * 1024 * 1024):
@@ -179,7 +182,7 @@ def lead_context(lead_id: int, db: Session = Depends(get_db)):
     return {'lead': {'id': lead.id, 'name': lead.name}, 'has_site': site_data is not None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page'} for p in site_pages(site_data, lead.name)] if site_data else [],
             'audios': [audio_payload(row) for row in audios], 'projects': [project_payload(row) for row in projects],
-            'ready': video_tools_ready()}
+            'ready': video_tools_ready(), 'missing_tools': video_dependencies()['missing']}
 
 
 def project_payload(row):
@@ -229,8 +232,9 @@ def run_job(identifier, mode):
 @router.post('/api/video-ads/prepare')
 async def prepare(request: Request, db: Session = Depends(get_db)):
     data = await read_json(request, 100000)
-    if not video_tools_ready():
-        raise HTTPException(503, 'Installez Playwright, Chromium, FFmpeg et ffprobe pour préparer une vidéo.')
+    if not await run_in_threadpool(video_tools_ready):
+        missing = (await run_in_threadpool(video_dependencies))['missing']
+        raise HTTPException(503, 'Outils vidéo manquants sur le serveur : '+', '.join(missing)+'. Exécutez scripts/install.sh puis redémarrez ProfileFinder.')
     lead_id, audio_id, format_name = data.get('lead_id'), data.get('audio_id'), data.get('format', 'portrait')
     if type(lead_id) is not int or not isinstance(audio_id, str) or not isinstance(format_name, str) or format_name not in FORMATS:
         raise HTTPException(400, 'Prospect, audio ou format invalide.')
