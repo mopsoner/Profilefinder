@@ -1,1 +1,4 @@
-{% extends 'base.html' %}{% block content %}<h1>Jobs</h1><table><tr><th>ID</th><th>Ville</th><th>Statut</th><th>Trouves</th><th>Retenus</th><th>Erreur</th></tr>{% for x in jobs %}<tr><td><a class="lead-link" href="/jobs/{{x.id}}">#{{x.id}}</a></td><td>{{x.city}}</td><td>{{x.status}}</td><td>{{x.total_found}}</td><td>{{x.total_filtered}}</td><td>{{x.error or ''}}</td></tr>{% endfor %}</table>{% endblock %}
+{% extends 'base.html' %}{% block content %}
+<div class="head"><div><h1>Jobs</h1><p class="muted">Recherches, sites IA, voix off, mixages, plans et exports vidéo.</p></div><a class="button secondary" href="/ops">Opérations →</a></div>
+{% include 'activity_table.html' %}
+{% endblock %}

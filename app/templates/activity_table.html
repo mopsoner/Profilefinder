@@ -1,0 +1,7 @@
+<section data-activity-feed>
+<div class="activity-toolbar"><label>Type de tâche<select data-task-kind><option value="">Tous les types</option>{% for key,label in job_kinds.items() %}<option value="{{key}}">{{label}}</option>{% endfor %}</select></label><label>État<select data-task-status><option value="">Tous les états</option><option value="queued">En attente</option><option value="running">En cours</option><option value="ready">Plans prêts</option><option value="completed">Terminés</option><option value="failed">En erreur</option></select></label><label>Rechercher<input data-task-search type="search" placeholder="Prospect, ville, tâche…"></label></div>
+<section class="cards"><article><strong data-task-count="running">0</strong><span>En cours / en attente</span></article><article><strong data-task-count="completed">0</strong><span>Terminés / plans prêts</span></article><article><strong data-task-count="failed">0</strong><span>En erreur</span></article></section>
+<p class="muted" data-task-feedback role="status">Actualisation toutes les 5 secondes.</p>
+<div class="ops-panel"><table><thead><tr><th>Job</th><th>Type</th><th>Prospect / zone</th><th>État</th><th>Progression</th><th>Étape / erreur</th><th>Résultats</th><th>Création</th><th>Durée</th><th>Ouvrir</th></tr></thead><tbody data-task-body></tbody></table></div>
+<script type="application/json" data-task-initial>{{activities|tojson}}</script>
+</section><script src="/static/activity.js" defer></script>

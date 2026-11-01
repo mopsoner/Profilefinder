@@ -6,7 +6,7 @@
 <article class="kpi-card"><span>Nouveaux · 7 jours</span><strong>+{{new_7d}}</strong><small>Acquisition récente</small></article>
 <article class="kpi-card"><span>Sans site web</span><strong>{{no_website}}</strong><small>Opportunités prioritaires</small></article>
 <article class="kpi-card"><span>Score ≥ 4</span><strong>{{high_score}}</strong><small>Prospects à fort potentiel</small></article>
-<article class="kpi-card"><span>Jobs exécutés</span><strong>{{jobs}}</strong><small>{% if latest_job %}Dernier : #{{latest_job.id}} · {{latest_job.city}}{% else %}Aucun job{% endif %}</small></article>
+<article class="kpi-card"><span>Activités enregistrées</span><strong>{{jobs}}</strong><small>{% if latest_job %}Dernier : #{{latest_job.id}} · {{latest_job.city}}{% else %}Aucun job{% endif %}</small></article>
 </section>
 
 <div class="dashboard-columns">
@@ -17,6 +17,6 @@
 <div class="priority-list">{% for x in top_leads %}<a href="/leads/{{x.id}}" class="priority-item"><span><strong>{{x.name}}</strong><small>{{x.city}} · {{x.reviews_count}} avis</small></span><b>{{x.score}}/5</b></a>{% else %}<div class="panel muted">Aucun prospect.</div>{% endfor %}</div></aside>
 </div>
 
-<div class="section-head jobs-head"><div><h2>Activité des recherches</h2><p class="muted">Derniers jobs de détection Google Places.</p></div><a href="/jobs">Tous les jobs →</a></div>
-<div class="ops-panel"><table><tr><th>Job</th><th>Zone</th><th>Statut</th><th>Places trouvées</th><th>Prospects retenus</th><th>Démarré</th></tr>{% for x in recent %}<tr><td><a class="lead-link" href="/jobs/{{x.id}}">#{{x.id}}</a></td><td>{{x.city}}</td><td><span class="badge {{x.status}}">{{x.status}}</span></td><td>{{x.total_found}}</td><td>{{x.total_filtered}}</td><td>{{x.started_at or '-'}}</td></tr>{% endfor %}</table></div>
+<div class="section-head jobs-head"><div><h2>Activité des studios et recherches</h2><p class="muted">Dernières recherches, créations de sites, audios et vidéos.</p></div><a href="/jobs">Tous les jobs →</a></div>
+<div class="ops-panel"><table><tr><th>Job</th><th>Type</th><th>Prospect / zone</th><th>Statut</th><th>Progression</th><th>Étape</th></tr>{% for x in recent %}<tr><td><a class="lead-link" href="{{x.url}}">#{{x.id}}</a></td><td>{{x.kind_label}}</td><td>{{x.city}}</td><td><span class="badge {{x.status}}">{{x.status_label}}</span></td><td>{{x.progress|string+'%' if x.progress is not none else '—'}}</td><td>{{x.error or x.stage or '—'}}</td></tr>{% else %}<tr><td colspan="6">Aucune activité.</td></tr>{% endfor %}</table></div>
 {% endblock %}

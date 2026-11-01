@@ -166,3 +166,5 @@
 @media(max-width:950px){.site-page .lead-media-grid{grid-template-columns:1fr}.site-page .lead-media-site{align-items:start;flex-direction:column}}
 
 .site-page .creative-instructions{margin:8px 0;min-width:180px;max-width:330px}.site-page .creative-instructions summary{cursor:pointer;font-size:10px;color:var(--purple)}.site-page .creative-instructions label{margin-top:12px}.site-page .creative-instructions textarea{font-size:11px;min-width:220px}.client-brief-text{white-space:pre-wrap;overflow-wrap:anywhere}
+
+.activity-toolbar{display:flex;flex-wrap:wrap;gap:16px;margin:20px 0}.activity-toolbar label{flex:1;min-width:180px}.activity-toolbar input,.activity-toolbar select{width:100%}[data-task-body] td{vertical-align:top}[data-task-body] .error-text{max-width:380px;white-space:normal;overflow-wrap:anywhere}

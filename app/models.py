@@ -25,6 +25,9 @@ class Job(Base):
     lead_id: Mapped[int|None]=mapped_column(nullable=True)
     client_instructions: Mapped[str]=mapped_column(Text,default="")
 
+    resource_id: Mapped[str|None]=mapped_column(String(32),nullable=True,index=True)
+    stage: Mapped[str|None]=mapped_column(Text,nullable=True)
+
 class Lead(Base):
     __tablename__="leads"
     id: Mapped[int]=mapped_column(primary_key=True)

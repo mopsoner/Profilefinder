@@ -7,6 +7,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from ads.server import mix_audio
+from .models import Job
+from .db import SessionLocal
+from .job_tracking import start_task, finish_task
 from .voice import synthesize, voice_status, VoiceUnavailable
 
 router = APIRouter()
@@ -39,8 +42,29 @@ def status():
     return voice_status()
 
 
-def generate_voice(data):
-    return Response(synthesize(data), media_type='audio/mpeg')
+def tracked_audio(data, mix=False):
+    with SessionLocal() as db:
+        lead_id=data.get('lead_id')
+        if lead_id is not None and type(lead_id) is not int:
+            raise ValueError('Identifiant de prospect invalide.')
+        task=start_task(db,'audio_mix' if mix else 'audio_voice',lead_id,
+                        stage='Mixage FFmpeg' if mix else 'Synthèse vocale · '+('ElevenLabs' if data.get('provider')=='elevenlabs' else 'OpenAI'))
+        db.commit()
+        task_id=task.id
+    try:
+        result=mix_audio(data) if mix else synthesize(data)
+    except Exception as error:
+        message=str(error) if isinstance(error,(ValueError,VoiceUnavailable)) else 'Le mixage audio a échoué.' if mix else 'La génération vocale a échoué. Vérifiez la connexion, la clé et les crédits du fournisseur.'
+        with SessionLocal() as db:
+            task=db.get(Job,task_id)
+            if task: finish_task(task,message)
+            db.commit()
+        raise
+    with SessionLocal() as db:
+        task=db.get(Job,task_id)
+        if task: finish_task(task)
+        db.commit()
+    return Response(result,media_type='audio/mpeg')
 
 
 @router.post('/api/mix')
@@ -61,8 +85,8 @@ async def audio(request: Request):
         if not isinstance(data, dict):
             raise ValueError('Objet JSON attendu.')
         if request.url.path == '/api/mix':
-            return Response(await run_in_threadpool(mix_audio, data), media_type='audio/mpeg')
-        return await run_in_threadpool(generate_voice, data)
+            return await run_in_threadpool(tracked_audio, data, True)
+        return await run_in_threadpool(tracked_audio, data)
     except (ValueError, UnicodeDecodeError) as error:
         return JSONResponse({'error': str(error)}, status_code=400)
     except VoiceUnavailable as error:

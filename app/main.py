@@ -15,6 +15,7 @@ from .site_generator import generate_lead_website,generate_site_images
 from .lead_insights import build_insights
 from .config import settings
 from .creative_brief import clean_brief
+from .job_tracking import activity_feed, job_payload, KINDS
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
 Base.metadata.create_all(engine)
@@ -28,6 +29,9 @@ with engine.begin() as conn:
         if "kind" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN kind VARCHAR(30) DEFAULT 'search'"))
         if "lead_id" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN lead_id INTEGER"))
         if "client_instructions" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN client_instructions TEXT NOT NULL DEFAULT ''"))
+        if "resource_id" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN resource_id VARCHAR(32)"))
+        if "stage" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN stage TEXT"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_resource_id ON jobs (resource_id)"))
         lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
@@ -68,6 +72,10 @@ app.include_router(video_ads_router)
 @app.on_event('startup')
 def startup_recover_video_jobs():
     recover_interrupted_jobs()
+    with SessionLocal() as db:
+        for row in db.scalars(select(Job).where(Job.kind.in_(['audio_voice','audio_mix','audio_copy']),Job.status.in_(['queued','running']))):
+            row.status='failed'; row.error='Traitement audio interrompu par le redémarrage. Relancez-le dans Ads.'; row.finished_at=datetime.utcnow()
+        db.commit()
 tpl=Jinja2Templates(directory="app/templates")
 tpl.env.filters["from_json"]=lambda value: json.loads(value or "{}")
 TYPE_CATEGORIES={
@@ -259,8 +267,10 @@ def home(request:Request,db:Session=Depends(get_db)):
     recent_leads=db.scalars(select(Lead).order_by(Lead.first_seen_at.desc()).limit(12)).all()
     top_leads=db.scalars(select(Lead).order_by(Lead.score.desc(),Lead.reviews_count.desc(),Lead.first_seen_at.desc()).limit(8)).all()
     recent_jobs=db.scalars(select(Job).order_by(Job.id.desc()).limit(8)).all()
+    activities=activity_feed(db)
+    recent_jobs=activities[:8]
     latest_job=recent_jobs[0] if recent_jobs else None
-    return tpl.TemplateResponse(request,"index.html",{"leads":total,"new_24h":new_24h,"new_7d":new_7d,"no_website":no_website,"high_score":high_score,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0,"recent":recent_jobs,"recent_leads":recent_leads,"top_leads":top_leads,"latest_job":latest_job})
+    return tpl.TemplateResponse(request,"index.html",{"leads":total,"new_24h":new_24h,"new_7d":new_7d,"no_website":no_website,"high_score":high_score,"jobs":len(activities),"recent":recent_jobs,"recent_leads":recent_leads,"top_leads":top_leads,"latest_job":latest_job})
 
 @app.get("/search",response_class=HTMLResponse)
 def search_page(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"search.html",{"types":TYPES,"type_categories":TYPE_CATEGORIES,"communes":get_communes(),"previous":db.scalars(select(Job).order_by(Job.id.desc()).limit(20)).all()})
@@ -301,6 +311,8 @@ def rerun_search(job_id:int,db:Session=Depends(get_db)):
     if source.kind=="site_ai" and source.lead_id:
         queue_site_generation(source.lead_id,source.client_instructions)
         return RedirectResponse("/sites",303)
+    if source.kind not in ("search", "site_ai"):
+        return RedirectResponse(job_payload(source,{lead.id:lead for lead in db.scalars(select(Lead))})["result_url"] or "/jobs",303)
     try: business_types=json.loads(source.types)
     except (TypeError,json.JSONDecodeError): business_types=[]
     max_results=source.max_results or 20
@@ -311,12 +323,14 @@ def rerun_search(job_id:int,db:Session=Depends(get_db)):
     return RedirectResponse("/ops",303)
 
 @app.get("/jobs",response_class=HTMLResponse)
-def jobs(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"jobs.html",{"jobs":db.scalars(select(Job).order_by(Job.id.desc())).all()})
+def jobs(request:Request,db:Session=Depends(get_db)): return tpl.TemplateResponse(request,"jobs.html",{"activities":activity_feed(db),"job_kinds":KINDS})
 
 @app.get("/jobs/{job_id}",response_class=HTMLResponse)
 def job_detail(job_id:int,request:Request,db:Session=Depends(get_db)):
     job=db.get(Job,job_id)
     if not job: return RedirectResponse("/jobs",303)
+    if job.kind != "search":
+        return tpl.TemplateResponse(request,"task_detail.html",{"task":job_payload(job,{lead.id:lead for lead in db.scalars(select(Lead))}),"job":job})
     try: business_types=json.loads(job.types or "[]")
     except (TypeError,json.JSONDecodeError): business_types=[]
     leads=db.scalars(select(Lead).join(JobLead,JobLead.lead_id==Lead.id).where(JobLead.job_id==job_id).order_by(Lead.score.desc(),Lead.id.desc())).all()
@@ -346,12 +360,7 @@ def job_detail(job_id:int,request:Request,db:Session=Depends(get_db)):
 
 @app.get("/ops",response_class=HTMLResponse)
 def ops(request:Request,db:Session=Depends(get_db)):
-    rows=db.scalars(select(Job).order_by(Job.id.desc()).limit(100)).all()
-    now=datetime.utcnow()
-    running=sum(1 for x in rows if x.status=="running")
-    failed=sum(1 for x in rows if x.status=="failed")
-    completed=sum(1 for x in rows if x.status=="completed")
-    return tpl.TemplateResponse(request,"ops.html",{"rows":rows,"running":running,"failed":failed,"completed":completed,"now":now,"communes":get_communes(),"departments":get_departments(),"commune_stats":commune_stats()})
+    return tpl.TemplateResponse(request,"ops.html",{"activities":activity_feed(db),"job_kinds":KINDS,"communes":get_communes(),"departments":get_departments(),"commune_stats":commune_stats()})
 
 @app.post("/ops/departments")
 def ops_add_department(department_code:str=Form(...)):
@@ -413,16 +422,7 @@ def api_ops_logs():
 
 @app.get("/api/ops")
 def api_ops(db:Session=Depends(get_db)):
-    rows=db.scalars(select(Job).order_by(Job.id.desc()).limit(100)).all()
-    def payload(x):
-        progress=None
-        if x.status=="completed": progress=100
-        elif x.error and x.error.startswith("PROGRESS:"):
-            try:
-                done,total=map(int,x.error.split(":",1)[1].split("/")); progress=round(done*100/total)
-            except (ValueError,ZeroDivisionError): pass
-        return {"id":x.id,"city":x.city,"status":x.status,"progress":progress,"total_found":x.total_found,"total_filtered":x.total_filtered,"error":None if (x.error or "").startswith("PROGRESS:") else x.error,"created_at":x.created_at.isoformat() if x.created_at else None,"started_at":x.started_at.isoformat() if x.started_at else None,"finished_at":x.finished_at.isoformat() if x.finished_at else None}
-    return [payload(x) for x in rows]
+    return activity_feed(db)
 
 @app.get("/leads",response_class=HTMLResponse)
 def leads(request:Request,q:str="",min_score:int=0,db:Session=Depends(get_db)):
@@ -434,7 +434,7 @@ def leads(request:Request,q:str="",min_score:int=0,db:Session=Depends(get_db)):
 def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     lead=db.get(Lead,lead_id)
     if not lead: return RedirectResponse("/leads",303)
-    jobs=db.scalars(select(Job).join(JobLead,JobLead.job_id==Job.id).where(JobLead.lead_id==lead_id).order_by(Job.id.desc())).all()
+    jobs=db.scalars(select(Job).outerjoin(JobLead,JobLead.job_id==Job.id).where((JobLead.lead_id==lead_id)|(Job.lead_id==lead_id)).distinct().order_by(Job.id.desc())).all()
     try: photos=json.loads(lead.photos_json or "[]")
     except (TypeError,json.JSONDecodeError): photos=[]
     try: reviews=json.loads(lead.reviews_json or "[]")
@@ -456,7 +456,7 @@ def generate_site_background(lead_id:int,job_id:int):
     db=SessionLocal(); job=db.get(Job,job_id)
     try:
         if job:
-            job.status="running"; job.started_at=datetime.utcnow(); job.error="PROGRESS:0/1"; db.commit()
+            job.status="running"; job.started_at=datetime.utcnow(); job.stage="Rédaction du site IA"; job.error="PROGRESS:0/2"; db.commit()
         lead=db.get(Lead,lead_id)
         if not lead: raise RuntimeError("Prospect introuvable")
         try: insights=json.loads(lead.insights_json or "{}")
@@ -465,7 +465,7 @@ def generate_site_background(lead_id:int,job_id:int):
         content=generate_lead_website(lead,insights,brief)
         content['_client_instructions']=brief
         if job:
-            job.error="PROGRESS:1/2"; db.commit()
+            job.stage="Génération des images du site"; job.error="PROGRESS:1/2"; db.commit()
         content=generate_site_images(lead_id,content)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
@@ -582,11 +582,11 @@ def export(db:Session=Depends(get_db)):
     return StreamingResponse(iter([out.getvalue()]),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=profilefinder-leads.csv"})
 
 @app.get("/api/stats")
-def stats(db:Session=Depends(get_db)): return {"leads":db.scalar(select(func.count()).select_from(Lead)) or 0,"jobs":db.scalar(select(func.count()).select_from(Job)) or 0}
+def stats(db:Session=Depends(get_db)): return {"leads":db.scalar(select(func.count()).select_from(Lead)) or 0,"jobs":len(activity_feed(db))}
 @app.get("/api/jobs")
-def api_jobs(db:Session=Depends(get_db)): return [{"id":x.id,"city":x.city,"status":x.status,"total_found":x.total_found,"total_filtered":x.total_filtered,"error":x.error} for x in db.scalars(select(Job).order_by(Job.id.desc())).all()]
+def api_jobs(db:Session=Depends(get_db)): return activity_feed(db)
 @app.get("/api/jobs/{job_id}")
 def api_job(job_id:int,db:Session=Depends(get_db)):
-    x=db.get(Job,job_id); return {"id":x.id,"city":x.city,"status":x.status,"total_found":x.total_found,"total_filtered":x.total_filtered,"error":x.error} if x else {"error":"not found"}
+    x=db.get(Job,job_id); return job_payload(x,{lead.id:lead for lead in db.scalars(select(Lead))}) if x else {"error":"not found"}
 @app.get("/api/leads")
 def api_leads(db:Session=Depends(get_db)): return [{"id":x.id,"place_id":x.place_id,"name":x.name,"phone":x.phone,"whatsapp_url":x.whatsapp_url,"score":x.score,"reviews_count":x.reviews_count,"rating":x.rating} for x in db.scalars(select(Lead).order_by(Lead.score.desc())).all()]
