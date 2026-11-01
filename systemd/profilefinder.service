@@ -1,0 +1,13 @@
+[Unit]
+Description=ProfileFinder
+After=network-online.target
+[Service]
+Type=simple
+User=CHANGE_ME
+WorkingDirectory=/opt/profilefinder
+EnvironmentFile=/opt/profilefinder/.env
+ExecStart=/opt/profilefinder/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

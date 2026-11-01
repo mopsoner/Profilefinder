@@ -1,0 +1,2 @@
+/* Compatibility entry point; the site theme is shared by all pages. */
+@import url("/theme.css");

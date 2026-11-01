@@ -1,0 +1,10 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+*.pyc
+data/*.db
+data/exports/*.csv
+data/geography.json
+data/logs/
+data/ads/
