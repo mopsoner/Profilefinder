@@ -1,0 +1,22 @@
+{% set art=website_art(site) %}{% set assets=namespace(images=[]) %}
+{% for section in page.get('sections',[]) %}{% if section.get('image_url') and art.image_style!='none' %}{% set assets.images=assets.images+[section.image_url] %}{% endif %}{% endfor %}
+{% if not assets.images %}{% for p in pages %}{% for section in p.get('sections',[]) %}{% if section.get('image_url') and art.image_style!='none' %}{% set assets.images=assets.images+[section.image_url] %}{% endif %}{% endfor %}{% endfor %}{% endif %}
+{% if photo_count and art.image_style!='none' %}{% for i in range([photo_count,3]|min) %}{% set assets.images=assets.images+['/api/leads/'~lead.id~'/photos/'~i] %}{% endfor %}{% endif %}
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{page.title}} | {{site.site_title}}</title><style>
+:root{--bg:{{art.palette.background}};--surface:{{art.palette.surface}};--ink:{{art.palette.ink}};--muted:{{art.palette.muted}};--accent:{{art.palette.accent}};--accent-text:{{art.palette.accent_text}};--border:{{art.palette.border}};--heading:{{art.heading_font|safe}};--body:{{art.body_font|safe}}}
+{% include 'lead_web_v2.css' %}
+</style></head><body class="website-v2 direction-{{art.direction}} density-{{art.density}} header-{{art.header_style}} button-{{art.button_style}} hero-{{site.hero_style}} layout-{{site.layout_style}} radius-{{site.radius_style}} {% if not assets.images %}without-images{% endif %}">
+<a class="skip" href="#content">Aller au contenu</a>
+<header class="site-header wrap"><a class="brand" href="/leads/{{lead.id}}/web">{{site.site_title or lead.name}}</a><nav aria-label="Navigation principale">{% for p in pages %}<a href="/leads/{{lead.id}}/web?page={{p.slug}}" {% if p.slug==page.slug %}aria-current="page"{% endif %}>{{p.nav_label}}</a>{% endfor %}</nav><a class="header-contact" href="#contact">Parlons de votre projet <span class="arrow" aria-hidden="true"></span></a></header>
+<main id="content">
+<section class="hero wrap {% if assets.images %}has-image{% endif %}">
+<div class="hero-copy"><p class="eyebrow">{{site.tagline}}</p><h1>{{page.title}}</h1><p class="hero-intro">{{page.intro}}</p><a class="button" href="#contact">{% if site.hero_style=='service_first' %}Nous contacter{% else %}Découvrir notre univers{% endif %}<span class="arrow" aria-hidden="true"></span></a></div>
+{% if assets.images %}<div class="hero-media" aria-hidden="true">{% if site.hero_style=='mosaic' %}{% for url in assets.images[:3] %}<img src="{{url}}" alt="" {% if loop.index>1 %}loading="lazy"{% endif %}>{% endfor %}{% else %}<img src="{{assets.images[0]}}" alt="">{% endif %}</div>{% endif %}
+{% if site.hero_style=='service_first' %}<nav class="service-strip" aria-label="Découvrir nos services">{% for section in page.get('sections',[])[:4] %}<a href="#section-{{loop.index}}"><span class="service-number">{{'%02d'|format(loop.index)}}</span>{{section.title}}<span class="arrow down" aria-hidden="true"></span></a>{% endfor %}</nav>{% endif %}
+</section>
+<div class="sections wrap">{% for section in page.get('sections',[]) %}<section id="section-{{loop.index}}" class="content-section {% if section.get('image_url') and art.image_style!='none' %}with-image{% endif %}">
+{% if section.get('image_url') and art.image_style!='none' %}<figure class="section-media"><img src="{{section.image_url}}" alt="" loading="lazy"></figure>{% endif %}
+<div class="section-copy"><span class="section-number" aria-hidden="true">{{'%02d'|format(loop.index)}}</span><h2>{{section.get('title','')}}</h2><p>{{section.get('text','')}}</p>{% set items=section.get('items',[]) %}{% if items %}<ul class="items">{% for item in items %}<li>{{item}}</li>{% endfor %}</ul>{% endif %}</div>
+</section>{% endfor %}</div>
+<section id="contact" class="contact wrap"><div><p class="eyebrow">Restons en contact</p><h2>{{site.cta_title}}</h2><p>{{site.cta_text}}</p></div><div class="contact-details">{% if lead.phone %}<a class="button" href="tel:{{lead.phone}}">{{lead.phone}}<span class="arrow" aria-hidden="true"></span></a>{% endif %}{% if lead.whatsapp_url %}<a class="contact-link" href="{{lead.whatsapp_url}}">Échanger sur WhatsApp</a>{% endif %}<p>{{lead.address or lead.city or ''}}</p></div></section>
+</main><footer class="site-footer wrap"><strong>{{site.site_title or lead.name}}</strong><span>{{lead.city or ''}}</span><a href="#content">Retour en haut</a></footer></body></html>

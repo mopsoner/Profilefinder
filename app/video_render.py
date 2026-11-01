@@ -9,12 +9,14 @@ import subprocess
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .config import settings
+from .site_style import website_art
 from .video_direction import direction, scene_layout, LAYOUTS
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA = (ROOT / settings().ads_media_root).resolve()
 FORMATS = {'portrait': (1080, 1920), 'landscape': (1920, 1080), 'square': (1080, 1080)}
 templates = Environment(loader=FileSystemLoader(ROOT / 'app/templates'), autoescape=select_autoescape(['html']))
+templates.globals['website_art']=website_art
 
 
 def audio_duration(path):
