@@ -1,14 +1,16 @@
 // Shared site navigation. Keep the menu and active-page state in one place.
 (() => {
   const path = location.pathname;
-  const current = document.body.dataset.page || (path === '/' ? 'home' : path.startsWith('/video-ads') ? 'video' : path.startsWith('/search') ? 'search' : path.startsWith('/sites') || /\/leads\/\d+\/web/.test(path) ? 'sites' : path.startsWith('/leads') ? 'leads' : path.startsWith('/jobs') ? 'jobs' : path.startsWith('/ops') ? 'ops' : 'ads');
+  const current = document.body.dataset.page || (path === '/' ? 'home' : path.startsWith('/video-ads') || /^\/leads\/\d+\/video-ads/.test(path) ? 'video' : path.startsWith('/search') ? 'search' : path.startsWith('/sites') || /\/leads\/\d+\/web/.test(path) ? 'sites' : path.startsWith('/leads') ? 'leads' : path.startsWith('/jobs') ? 'jobs' : path.startsWith('/ops') ? 'ops' : 'ads');
+  const leadId=path.match(/^\/leads\/(\d+)/)?.[1]||new URLSearchParams(location.search).get('lead_id');
+  const contextLead=/^\d+$/.test(leadId||'')?leadId:null;
   const pages = [
     { id: 'home', href: '/', icon: '⌂', label: 'Dashboard' },
     { id: 'search', href: '/search', icon: '⌕', label: 'Recherche' },
     { id: 'leads', href: '/leads', icon: '◇', label: 'Prospects' },
     { id: 'sites', href: '/sites', icon: '▧', label: 'Sites IA' },
-    { id: 'ads', href: '/ads', icon: '◉', label: 'Ads', badge: 'STUDIO' },
-    { id: 'video', href: '/video-ads', icon: '▸', label: 'Video Ads', badge: 'HD' },
+    { id: 'ads', href: contextLead?'/ads?lead_id='+contextLead:'/ads', icon: '◉', label: 'Ads', badge: 'STUDIO' },
+    { id: 'video', href: contextLead?'/leads/'+contextLead+'/video-ads':'/video-ads', icon: '▸', label: 'Video Ads', badge: 'HD' },
     { id: 'jobs', href: '/jobs', icon: '≋', label: 'Jobs' },
     { id: 'ops', href: '/ops', icon: '⚙', label: 'Opérations' },
   ];

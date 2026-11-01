@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select,func,text
 from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
-from .models import Job,Lead,JobLead,LeadWebsite
+from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd
 from .core import grid_points,normalize_phone,score
 from .places import Places
 from .site_generator import generate_lead_website,generate_site_images
@@ -434,7 +434,10 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     except (TypeError,json.JSONDecodeError): photos=[]
     try: reviews=json.loads(lead.reviews_json or "[]")
     except (TypeError,json.JSONDecodeError): reviews=[]
-    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews})
+    audios=db.scalars(select(AudioAd).where(AudioAd.lead_id==lead_id).order_by(AudioAd.created_at.desc())).all()
+    videos=db.scalars(select(VideoAd).where(VideoAd.lead_id==lead_id).order_by(VideoAd.created_at.desc())).all()
+    website=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews,"audios":audios,"videos":videos,"website":website})
 
 @app.get("/sites",response_class=HTMLResponse)
 def sites(request:Request,db:Session=Depends(get_db)):

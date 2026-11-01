@@ -160,9 +160,13 @@ def saved_audio(identifier: str, db: Session = Depends(get_db)):
 
 
 @router.get('/video-ads')
-def studio(request: Request, db: Session = Depends(get_db)):
-    leads = db.scalars(select(Lead).order_by(Lead.name)).all()
-    return tpl.TemplateResponse(request, 'video_ads.html', {'leads': leads})
+@router.get('/leads/{lead_id}/video-ads')
+def studio(request: Request, lead_id: int | None = None, db: Session = Depends(get_db)):
+    selected_lead = db.get(Lead, lead_id) if lead_id is not None else None
+    if lead_id is not None and not selected_lead:
+        raise HTTPException(404, 'Prospect introuvable.')
+    leads = [selected_lead] if 'lead_id' in request.path_params else db.scalars(select(Lead).order_by(Lead.name)).all()
+    return tpl.TemplateResponse(request, 'video_ads.html', {'leads': leads, 'selected_lead': selected_lead})
 
 
 @router.get('/api/video-ads/leads/{lead_id}')

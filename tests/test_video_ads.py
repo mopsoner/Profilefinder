@@ -4,6 +4,7 @@ import json
 import math
 import shutil
 import sys
+import threading
 import wave
 
 import pytest
@@ -13,7 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, get_db
-from app.models import Lead, AudioAd, VideoAd
+from app.models import Lead, LeadWebsite, AudioAd, VideoAd
 from app import video_ads
 from app.video_render import split_script, validate_slides, site_pages, embed_local_images
 
@@ -87,6 +88,17 @@ def test_audio_must_belong_to_selected_lead(client):
     assert http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':[]}).status_code == 400
 
 
+def test_scoped_video_studio_preserves_prospect_context(client):
+    http, _ = client
+    response=http.get('/leads/1/video-ads')
+    assert response.status_code==200
+    assert 'data-selected-lead="1"' in response.text
+    assert 'Les publicités vidéo de <strong>Entreprise A</strong>' in response.text
+    assert '<option value="2"' not in response.text
+    assert '/leads/1#creations' in response.text
+    assert http.get('/leads/999/video-ads').status_code==404
+
+
 def test_audio_requires_script_and_a_real_lead(client):
     http, _ = client
     assert http.post('/api/ads/audio',json={'lead_id':999,'script':'Bonjour','audio':'bad'}).status_code == 404
@@ -120,9 +132,30 @@ def test_audio_persists_and_can_be_reused(client):
     value = response.json()
     assert math.isclose(value['duration'], 2, abs_tol=.1)
     assert http.get(value['url']).content == buffer.getvalue()
-    assert value['id'] in [a['id'] for a in http.get('/api/video-ads/leads/1').json()['audios']]
+    restored = next(a for a in http.get('/api/video-ads/leads/1').json()['audios'] if a['id']==value['id'])
+    assert restored['script']=='Découvrez notre entreprise.'
     with sessions() as db:
         assert db.get(AudioAd, value['id']).script == 'Découvrez notre entreprise.'
+
+
+def test_storyboard_uses_the_message_saved_with_its_audio(client, monkeypatch):
+    http, sessions = client
+    script = 'Découvrez Entreprise A. Une annonce conservée avec sa voix off.'
+    with sessions() as db:
+        db.get(AudioAd,'a'*32).script=script
+        db.add(LeadWebsite(lead_id=1,content_json=json.dumps({'pages':[{'title':'Accueil'}]})))
+        db.commit()
+    folder=video_ads.MEDIA/'audio'
+    folder.mkdir(parents=True)
+    (folder/('a'*32+'.mp3')).write_bytes(b'fixture')
+    monkeypatch.setattr(video_ads,'slot',threading.BoundedSemaphore(1))
+    monkeypatch.setattr(video_ads.pool,'submit',lambda *args:None)
+    try:
+        response=http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':'portrait','script':'Un autre texte ne doit pas remplacer le message audio.'})
+        assert response.status_code==200
+        assert ' '.join(s['caption'] for s in response.json()['slides'])==script
+    finally:
+        video_ads.slot.release()
 
 
 def test_restart_marks_only_interrupted_jobs_failed(client):

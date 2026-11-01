@@ -8,7 +8,7 @@
 <div class="ops-panel"><table><thead><tr><th>Prospect</th><th>Type</th><th>Ville</th><th>Pages</th><th>Modèle</th><th>Mise à jour</th><th>Actions</th></tr></thead><tbody>
 {% for website,lead in generated %}{% set data=website.content_json|from_json %}<tr>
 <td><a class="lead-link" href="/leads/{{lead.id}}">{{lead.name}}</a></td><td>{{type_label(lead.business_type)}}</td><td>{{lead.city or '-'}}</td><td>{{(data.pages or [])|length}}</td><td>{{website.model or '-'}}</td><td>{{website.updated_at}}</td>
-<td><a class="button secondary" target="_blank" href="/leads/{{lead.id}}/web">Voir</a><a class="button secondary" href="/video-ads?lead_id={{lead.id}}">Video Ads</a><form style="display:inline" method="post" action="/sites/{{lead.id}}/generate"><button type="submit">Régénérer</button></form><form style="display:inline" method="post" action="/sites/{{lead.id}}/delete" onsubmit="return confirm('Supprimer ce site IA ?')"><button class="secondary" type="submit">Supprimer</button></form></td>
+<td><a class="button secondary" target="_blank" href="/leads/{{lead.id}}/web">Voir</a><a class="button secondary" href="/leads/{{lead.id}}/video-ads">Video Ads</a><form style="display:inline" method="post" action="/sites/{{lead.id}}/generate"><button type="submit">Régénérer</button></form><form style="display:inline" method="post" action="/sites/{{lead.id}}/delete" onsubmit="return confirm('Supprimer ce site IA ?')"><button class="secondary" type="submit">Supprimer</button></form></td>
 </tr>{% else %}<tr><td colspan="7" class="muted">Aucun site IA généré.</td></tr>{% endfor %}
 </tbody></table></div>
 <h2>Prospects à équiper</h2><p class="muted">Priorité aux prospects sans site web détecté, classés par score ProfileFinder.</p>
