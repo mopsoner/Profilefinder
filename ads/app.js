@@ -3,7 +3,7 @@ const state = { voice: null, music: null, voiceURL: null, mixURL: null, mixBlob:
 let toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 5500); }
 function bars(selector, count, scale) { const el = document.querySelector(selector); for(let i=0;i<count;i++){const bar=document.createElement('i');bar.style.height=`${(0.15+Math.abs(Math.sin(i*1.7)*Math.cos(i*.31))*.85)*scale}px`;el.append(bar);} }
-bars('.orb-bars', 19, 64); bars('.mix-wave', 65, 31); 
+bars('.orb-bars', 19, 64); bars('.mix-wave', 65, 31);
 function countWords(){const count=$('ad-text').value.trim().split(/\s+/).filter(Boolean).length;$('word-count').textContent=`${count} mots · ≈ ${Math.round(count/2.5)} s`;}
 function invalidateMix(){if(state.mixURL) URL.revokeObjectURL(state.mixURL);state.mixURL=null;state.mixBlob=null;$('save-video-audio').hidden=true;$('mix-player').pause();$('mix-player').removeAttribute('src');$('mix-player').hidden=true;$('download').hidden=true;}
 function setVoice(blob, name){invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=blob;state.voiceURL=URL.createObjectURL(blob);$('voice-player').src=state.voiceURL;$('voice-player').hidden=false;$('voice-filename').textContent=name;}
