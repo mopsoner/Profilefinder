@@ -84,6 +84,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0]
+        if path == '/static/light-theme.css':
+            self.send(200, (ROOT.parent / 'app/static/light-theme.css').read_bytes(), 'text/css')
+            return
         if path in ('/favicon.ico', '/static/favicon.svg'):
             self.send(200, (ROOT.parent / 'app/static/favicon.svg').read_bytes(), 'image/svg+xml')
             return
