@@ -6,9 +6,10 @@ Page `/video-ads`, accessible depuis la navigation commune. Le format par défau
 
 1. Dans Ads, choisir un lead, préparer le script, générer ou importer la voix, puis créer le mix. Cliquer sur **Enregistrer et créer une Video Ad** : l’audio final et son texte sont conservés pour ce lead. Les fichiers téléchargés avant cette fonctionnalité peuvent être importés dans Video Ads avec leur texte de voix off.
 2. Dans Sites IA, générer le site du même lead si nécessaire.
-3. Dans Video Ads, sélectionner le lead, un audio sauvegardé et le format. **Préparer mon slideshow** capture les pages du site enregistré en HD et répartit le script en slides.
-4. Modifier les textes, choisir la page associée à chaque slide, réordonner, ajouter ou supprimer des slides et ajuster leurs durées.
-5. **Générer ma vidéo MP4** produit une vidéo H.264 avec audio AAC, texte incrusté, captures des pages, coordonnées disponibles et fondus. Le fichier est lisible dans la page et téléchargeable.
+3. L’étape **Préparer mon message** peut générer un nouveau texte via OpenAI en utilisant le profil, les avis, les analyses et le site enregistrés. Le texte reste modifiable et peut être transféré dans Ads pour créer une nouvelle voix off. Cette génération utilise la clé et le modèle OpenAI existants et consomme les crédits du compte. Elle ne remplace jamais le texte associé à un audio existant.
+4. Dans Video Ads, sélectionner le lead, un audio sauvegardé et le format. **Préparer mon slideshow** capture les pages du site enregistré en HD et répartit le script en slides.
+5. Modifier les textes, choisir la page associée à chaque slide, réordonner, ajouter ou supprimer des slides et ajuster leurs durées.
+6. **Générer ma vidéo MP4** produit une vidéo H.264 avec audio AAC, texte incrusté, captures des pages, coordonnées disponibles et fondus. Le fichier est lisible dans la page et téléchargeable.
 
 Le texte est découpé localement, sans requête IA supplémentaire. Les durées sont réparties sur la durée réelle de l’audio ; la synchronisation est indicative et ne constitue pas un alignement mot à mot. Les modifications du storyboard sont enregistrées au lancement du rendu. Les captures correspondent au site enregistré au moment de la préparation, même si le site est ensuite modifié.
 

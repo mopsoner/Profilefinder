@@ -8,14 +8,13 @@ function countWords(){const count=$('ad-text').value.trim().split(/\s+/).filter(
 function invalidateMix(){if(state.mixURL) URL.revokeObjectURL(state.mixURL);state.mixURL=null;state.mixBlob=null;$('save-video-audio').hidden=true;$('mix-player').pause();$('mix-player').removeAttribute('src');$('mix-player').hidden=true;$('download').hidden=true;}
 function setVoice(blob, name){invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=blob;state.voiceURL=URL.createObjectURL(blob);$('voice-player').src=state.voiceURL;$('voice-player').hidden=false;$('voice-filename').textContent=name;}
 $('ad-text').addEventListener('input',countWords);
-$('generate-text').addEventListener('click',()=>{
- const company=$('company').value.trim(), activity=$('activity').value.trim(), city=$('city').value.trim(), details=$('details').value.trim();
- if(!company||!activity){toast('Renseignez le nom et l’activité de votre entreprise.');return;}
- const openings={warm:`Et si votre prochaine belle découverte se trouvait${city?' à '+city:' tout près de vous'} ?`,bold:`Envie de nouveauté${city?' à '+city:''} ? Faites place à ${company} !`,premium:`Découvrez une autre idée de ${activity.toLowerCase()}${city?', à '+city:''}.`};
- const duration=Number($('duration').value);const intro=duration===15?`Découvrez ${company}${city?', à '+city:''}.`:openings[$('tone').value]+` ${company}, ${activity.toLowerCase()}.`;
- $('ad-text').value=intro+(details?' '+details:'')+(duration===45?' Prenez le temps de découvrir notre univers et de trouver ce qui vous ressemble.':'')+` Contactez ${company} pour en savoir plus.`;
- countWords();toast('Votre proposition est prête. Ajustez le texte et sa durée avant la voix off.');
-});
+$('generate-text').addEventListener('click',()=>busy('generate-text',async()=>{
+ const leadId=$('ads-lead').value, original=$('ad-text').value;
+ const response=await fetch('/api/ads/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:leadId?Number(leadId):null,profile:{name:$('company').value,activity:$('activity').value,city:$('city').value},details:$('details').value,tone:$('tone').value,duration:Number($('duration').value)})});
+ const result=await response.json();if(!response.ok)throw new Error(result.detail||'Génération impossible.');
+ if($('ads-lead').value!==leadId||$('ad-text').value!==original){toast('Le profil ou le texte a changé pendant la génération. Relancez pour conserver vos modifications.');return;}
+ $('ad-text').value=result.script;countWords();toast('Votre message OpenAI est prêt. Relisez-le avant la voix off.');
+}));
 $('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('ad-text').value);toast('Script copié.');}catch{toast('Sélectionnez le texte pour le copier dans votre navigateur.');}});
 for(const kind of ['voice','music']) $(kind+'-file').addEventListener('change',event=>{const file=event.target.files[0];if(!file)return;if(file.size>20*1024*1024){toast('Ce fichier dépasse la limite de 20 Mo.');event.target.value='';return;}if(!file.type.startsWith('audio/')&&!/\.(mp3|wav|m4a|ogg|flac|aac|webm)$/i.test(file.name)){toast('Choisissez un fichier audio.');event.target.value='';return;}if(kind==='voice'){setVoice(file,file.name);state.voiceScript=null;}else{state.music=file;$('music-filename').textContent=file.name;invalidateMix();}toast(kind==='voice'?'Voix off importée.':'Musique importée.');});
 for(const kind of ['voice','music']) $(kind+'-volume').addEventListener('input',()=>{$(kind+'-value').textContent=$(kind+'-volume').value+' %';invalidateMix();});
@@ -57,6 +56,6 @@ fetch('/api/ads/leads').then(r=>{if(!r.ok)throw new Error();return r.json();}).t
  leads.forEach(lead=>$('ads-lead').add(new Option(lead.name+(lead.city?' · '+lead.city:''),String(lead.id))));
  function applyLead(){const lead=leads.find(l=>String(l.id)===$('ads-lead').value);invalidateMix();state.voiceScript=null;if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voiceURL=null;state.voice=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;$('voice-filename').textContent='Importer une voix off';$('ad-text').value='';countWords();if(lead){$('company').value=lead.name;$('activity').value=lead.activity.replaceAll('_',' ');$('city').value=lead.city;$('details').value='';$('ads-lead-status').textContent='Audio et script pourront être sauvegardés pour ce lead.';}else $('ads-lead-status').textContent='Choisissez un lead pour réutiliser votre audio dans Video Ads.';}
  $('ads-lead').addEventListener('change',applyLead);
- const leadId=new URLSearchParams(location.search).get('lead_id');if(leads.some(l=>String(l.id)===leadId)){$('ads-lead').value=leadId;applyLead();}
+ const leadId=new URLSearchParams(location.search).get('lead_id');if(leads.some(l=>String(l.id)===leadId)){$('ads-lead').value=leadId;applyLead();if(new URLSearchParams(location.search).get('message_draft')==='1'){try{const draft=sessionStorage.getItem('ads-message-'+leadId);if(draft){$('ad-text').value=draft;countWords();toast('Message importé de Video Ads. Générez la voix off pour ce nouveau texte.');}}catch{}}}
  if(!leads.length)$('ads-lead-status').textContent='Ajoutez un prospect pour créer une annonce liée à son profil.';
 }).catch(()=>{$('ads-lead-status').textContent='Liste des leads indisponible dans ce serveur. Utilisez l’application complète.';});

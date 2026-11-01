@@ -1,15 +1,35 @@
 (() => {
   const $ = id => document.getElementById(id);
   if (!$('video-lead')) return;
-  const state = {context: null, project: null, format: 'portrait', epoch: 0, timer: null};
+  const state = {context: null, project: null, format: 'portrait', epoch: 0, timer: null, submitting: false, loadingContext: false};
   const labels = {preparing:'Captures HD en cours', ready:'Storyboard prêt', rendering:'Rendu vidéo en cours', completed:'Vidéo disponible', failed:'À reprendre'};
   let noticeTimer;
   function notice(message) { $('video-notice').textContent=message;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('video-notice').textContent='',7000); }
-  async function api(url, data) {
-    const response=await fetch(url, data===undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    let value;try{value=await response.json();}catch{throw new Error('Le serveur n’a pas renvoyé de réponse valide.');}
-    if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:value.error||'Le traitement a échoué.');
-    return value;
+  async function api(url, data, timeout=90000) {
+    const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),timeout);
+    try{
+      const response=await fetch(url, {...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),signal:controller.signal});
+      let value;try{value=await response.json();}catch{throw new Error('Le serveur n’a pas renvoyé de réponse valide. Rechargez la page ou réessayez.');}
+      if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:value.error||'Le traitement a échoué.');
+      return value;
+    }catch(error){if(error.name==='AbortError')throw new Error('Le serveur met trop de temps à répondre. Rechargez les créations pour vérifier si le projet a démarré avant de réessayer.');throw error;}
+    finally{clearTimeout(timer);}
+  }
+  function preparationMessage(message,error=false){$('prepare-status').textContent=message;$('prepare-status').classList.toggle('error',error);}
+  function prerequisite(){
+    if(!$('video-lead').value)return 'Sélectionnez d’abord un prospect dans « Le point de départ ».';
+    if(state.loadingContext)return 'Chargement des médias du prospect… Patientez un instant.';
+    if(!state.context)return 'Les médias du prospect ne sont pas chargés. Sélectionnez à nouveau le prospect pour réessayer.';
+    if(!selectedAudio())return 'Il manque un audio sauvegardé pour ce prospect. Choisissez un audio, importez votre MP3 ou créez sa voix off dans Ads puis enregistrez le mix.';
+    if(!state.context.has_site)return 'Il manque le site de ce prospect. Générez-le dans Sites IA avant de préparer le slideshow.';
+    if(!state.context.ready)return 'Outils manquants sur le serveur : '+(state.context.missing_tools?.join(', ')||'Playwright, Chromium ou FFmpeg')+'. Exécutez scripts/install.sh puis redémarrez ProfileFinder.';
+    return '';
+  }
+  function updatePreparation(){
+    const busy=state.submitting||['preparing','rendering'].includes(state.project?.status);
+    $('prepare-video').disabled=busy;
+    $('prepare-video').textContent=busy?'Préparation ou rendu en cours…':'✦ Préparer mon slideshow ↗';
+    preparationMessage(busy?'Le traitement est en cours. Son avancement apparaît dans le storyboard.':prerequisite()||'Tout est prêt : votre audio et les pages du site seront réunis dans le storyboard.');
   }
   const selectedAudio=()=>state.context?.audios.find(a=>a.id===$('video-audio').value);
   function updateAudio() {
@@ -17,7 +37,7 @@
     $('source-audio').pause();$('source-audio').hidden=!audio;
     if(audio){$('source-audio').src=audio.url;$('audio-meta').textContent=`${audio.duration.toFixed(1)} s · ${audio.script.split(/\s+/).length} mots · audio conservé pour ce lead`;}
     else{$('source-audio').removeAttribute('src');$('audio-meta').textContent='Aucun audio sélectionné. Créez-le dans Ads ou importez un fichier existant.';}
-    $('prepare-video').disabled=!(audio&&state.context?.has_site&&state.context.ready);
+    updatePreparation();
   }
   function drawHistory(projects) {
     $('video-history').replaceChildren();
@@ -25,18 +45,18 @@
     projects.forEach(project=>{const button=document.createElement('button');button.type='button';button.className='history-item'+(state.project?.id===project.id?' chosen':'');const label=document.createElement('span');label.textContent=labels[project.status]||project.status;const date=document.createElement('small');date.textContent=new Date(project.created_at+'Z').toLocaleDateString('fr-FR')+' · '+({portrait:'9:16',landscape:'16:9',square:'1:1'}[project.format]);button.append(label,date);button.onclick=()=>loadProject(project.id);$('video-history').append(button);});
   }
   async function loadContext(audioId) {
-    const epoch=++state.epoch;clearTimeout(state.timer);state.project=null;state.context=null;
-    $('story-empty').hidden=false;$('storyboard').hidden=true;$('video-result').hidden=true;$('project-progress').hidden=true;$('project-error').hidden=true;$('project-badge').textContent='EN ATTENTE';$('lead-context').hidden=true;$('prepare-video').disabled=true;$('final-video').pause();
-    const lead=$('video-lead').value;if(!lead){$('video-history').replaceChildren();return;}
+    const epoch=++state.epoch;clearTimeout(state.timer);state.project=null;state.context=null;state.submitting=false;state.loadingContext=true;$('video-copy-text').value='';$('video-copy-meta').textContent='';$('use-video-message').disabled=true;
+    $('story-empty').hidden=false;$('storyboard').hidden=true;$('video-result').hidden=true;$('project-progress').hidden=true;$('project-error').hidden=true;$('project-badge').textContent='EN ATTENTE';$('lead-context').hidden=true;$('final-video').pause();updatePreparation();
+    const lead=$('video-lead').value;if(!lead){state.loadingContext=false;$('video-history').replaceChildren();updatePreparation();return;}
     try{
       const context=await api('/api/video-ads/leads/'+lead);if(epoch!==state.epoch)return;
-      state.context=context;$('lead-context').hidden=false;$('site-status').textContent=context.has_site?`◈ Site disponible · ${context.pages.length} page(s) à capturer en HD`:'Générez d’abord un site pour ce lead dans Sites IA.';$('site-status').classList.toggle('missing',!context.has_site);
+      state.context=context;state.loadingContext=false;$('lead-context').hidden=false;$('site-status').textContent=context.has_site?`◈ Site disponible · ${context.pages.length} page(s) à capturer en HD`:'Générez d’abord un site pour ce lead dans Sites IA.';$('site-status').classList.toggle('missing',!context.has_site);
       $('audio-studio-link').href='/ads?lead_id='+lead;
       $('video-audio').replaceChildren(new Option('Choisir un audio…',''));
       context.audios.forEach(audio=>$('video-audio').add(new Option(`${new Date(audio.created_at+'Z').toLocaleString('fr-FR')} · ${audio.duration.toFixed(1)} s`,audio.id)));
       $('video-audio').value=context.audios.some(a=>a.id===audioId)?audioId:(context.audios[0]?.id||'');updateAudio();drawHistory(context.projects);
-      if(!context.ready)notice('Playwright, Chromium et FFmpeg sont requis pour produire les vidéos.');
-    }catch(error){if(epoch===state.epoch)notice(error.message);}
+      if(!context.ready)notice(prerequisite());
+    }catch(error){if(epoch===state.epoch){state.loadingContext=false;updatePreparation();preparationMessage(error.message,true);notice(error.message);}}
   }
   function updateURL() {const query=new URLSearchParams({lead_id:$('video-lead').value});if(state.project)query.set('project_id',state.project.id);history.replaceState(null,'','/video-ads?'+query);}
   function timing() {const slides=state.project?.slides||[];const audio=state.context?.audios.find(a=>a.id===state.project?.audio_id);$('timing-summary').textContent=`${slides.length} slide(s) · audio ${audio?audio.duration.toFixed(1):'—'} s`;}
@@ -55,7 +75,7 @@
   }
   async function refreshHistory() {try{const epoch=state.epoch;const context=await api('/api/video-ads/leads/'+$('video-lead').value);if(epoch===state.epoch)drawHistory(context.projects);}catch{}}
   function showProject(project) {
-    state.project=project;updateURL();$('story-empty').hidden=true;$('project-badge').textContent=(labels[project.status]||project.status).toLocaleUpperCase('fr');
+    state.project=project;updatePreparation();updateURL();$('story-empty').hidden=true;$('project-badge').textContent=(labels[project.status]||project.status).toLocaleUpperCase('fr');
     const busy=['preparing','rendering'].includes(project.status);$('project-progress').hidden=!busy;$('progress-label').textContent=labels[project.status];$('progress-value').textContent=project.progress+' %';$('progress-bar').value=project.progress;
     $('project-error').hidden=!project.error;$('project-error').textContent=project.error||'';$('storyboard').hidden=busy||project.status==='failed'&&project.pages.length===0;
     $('video-result').hidden=project.status!=='completed';
@@ -67,10 +87,26 @@
   $('video-lead').onchange=async()=>{history.replaceState(null,'','/video-ads'+($('video-lead').value?'?lead_id='+$('video-lead').value:''));await loadContext();};
   $('video-audio').onchange=()=>{updateAudio();if(state.project&&$('video-audio').value!==state.project.audio_id)notice('Pour utiliser ce nouvel audio, préparez un nouveau slideshow.');};
   document.querySelectorAll('[data-format]').forEach(button=>button.onclick=()=>{state.format=button.dataset.format;document.querySelectorAll('[data-format]').forEach(b=>{const selected=b===button;b.classList.toggle('chosen',selected);b.setAttribute('aria-pressed',String(selected));});});
-  $('prepare-video').onclick=async()=>{const button=$('prepare-video'),epoch=state.epoch;button.disabled=true;try{const project=await api('/api/video-ads/prepare',{lead_id:Number($('video-lead').value),audio_id:$('video-audio').value,format:state.format});if(epoch===state.epoch){showProject(project);notice('Préparation des captures HD et du storyboard.');}}catch(error){notice(error.message);}finally{if(epoch===state.epoch)updateAudio();}};
+  $('prepare-video').onclick=async()=>{
+    const missing=prerequisite();if(missing){preparationMessage(missing,true);notice(missing);if(!$('video-lead').value)$('video-lead').focus();else if(state.context&&!selectedAudio())$('video-audio').focus();return;}
+    const epoch=state.epoch;state.submitting=true;updatePreparation();
+    $('story-empty').hidden=true;$('storyboard').hidden=true;$('video-result').hidden=true;$('project-error').hidden=true;$('project-progress').hidden=false;$('project-badge').textContent='DÉMARRAGE';$('progress-label').textContent='Envoi de la demande de préparation…';$('progress-value').textContent='0 %';$('progress-bar').value=0;
+    $('project-progress').scrollIntoView({behavior:'smooth',block:'center'});
+    try{const project=await api('/api/video-ads/prepare',{lead_id:Number($('video-lead').value),audio_id:$('video-audio').value,format:state.format});if(epoch===state.epoch){showProject(project);notice('Préparation des captures HD et du storyboard.');}}
+    catch(error){if(epoch===state.epoch){$('project-progress').hidden=true;$('project-error').hidden=false;$('project-error').textContent=error.message;$('project-badge').textContent='PRÉPARATION IMPOSSIBLE';state.project=null;preparationMessage(error.message,true);notice(error.message);}}
+    finally{if(epoch===state.epoch){state.submitting=false;updatePreparation();if(!$('project-error').hidden)preparationMessage($('project-error').textContent,true);}}
+  };
   $('add-slide').onclick=()=>{if(state.project.slides.length>=8)return;state.project.slides.push({page_index:0,caption:'',duration:3});dirty();drawSlides();};
   $('render-video').onclick=async()=>{if(state.project.slides.some(s=>!s.caption.trim()||s.caption.length>700||!Number.isFinite(s.duration)||s.duration<.5||s.duration>300)){notice('Vérifiez les textes et les durées de vos slides.');return;}const button=$('render-video'),epoch=state.epoch;button.disabled=true;try{const project=await api('/api/video-ads/'+state.project.id+'/render',{slides:state.project.slides});if(epoch===state.epoch)showProject(project);}catch(error){notice(error.message);}finally{button.disabled=false;}};
   const toBase64=file=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('Fichier illisible.'));reader.readAsDataURL(file);});
   $('save-existing').onclick=async()=>{const file=$('existing-audio').files[0],script=$('existing-script').value.trim(),lead=Number($('video-lead').value);if(!file||file.size>20*1024*1024||!script){notice('Choisissez un audio de 20 Mo maximum et renseignez son texte de voix off.');return;}const button=$('save-existing'),epoch=state.epoch;button.disabled=true;try{const audio=await api('/api/ads/audio',{lead_id:lead,script,audio:await toBase64(file)});if(epoch===state.epoch){await loadContext(audio.id);notice('Audio et texte associés à ce lead.');}}catch(error){notice(error.message);}finally{button.disabled=false;}};
+  $('generate-video-message').onclick=async()=>{
+    const lead=$('video-lead').value,original=$('video-copy-text').value;if(!lead){notice('Sélectionnez un prospect pour préparer son message.');return;}
+    const button=$('generate-video-message');button.disabled=true;button.textContent='L’IA prépare votre message…';
+    try{const result=await api('/api/ads/message',{lead_id:Number(lead),tone:$('video-copy-tone').value,duration:Number($('video-copy-duration').value),details:$('video-copy-details').value},150000);if($('video-lead').value!==lead||$('video-copy-text').value!==original){notice('Le profil ou le texte a changé. Relancez la génération pour conserver vos modifications.');return;}$('video-copy-text').value=result.script;$('video-copy-meta').textContent=`OpenAI · environ ${result.estimated_duration} s · relisez et ajustez avant la voix off`;$('use-video-message').disabled=false;notice('Votre message personnalisé est prêt.');}catch(error){notice(error.message);}finally{button.disabled=false;button.textContent='✦ Générer mon message';}
+  };
+  $('video-copy-text').oninput=()=>{$('use-video-message').disabled=!$('video-copy-text').value.trim();};
+  $('use-video-message').onclick=()=>{const lead=$('video-lead').value,text=$('video-copy-text').value.trim();if(!lead||!text)return;try{sessionStorage.setItem('ads-message-'+lead,text);location.href='/ads?lead_id='+lead+'&message_draft=1';}catch{notice('Le stockage du navigateur est indisponible. Copiez le texte dans Ads pour créer sa voix off.');}};
+  updatePreparation();
   const params=new URLSearchParams(location.search);if(params.get('lead_id')&&Array.from($('video-lead').options).some(o=>o.value===params.get('lead_id'))){$('video-lead').value=params.get('lead_id');loadContext(params.get('audio_id')).then(()=>{if(params.get('project_id'))loadProject(params.get('project_id'));});}
 })();

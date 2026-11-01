@@ -3,6 +3,7 @@ import io
 import json
 import math
 import shutil
+import sys
 import wave
 
 import pytest
@@ -47,6 +48,14 @@ def test_legacy_sites_and_remote_images():
     assert site_pages({'pages':None}, 'Entreprise')[0]['title'] == 'Entreprise'
 
 
+def test_missing_dependencies_are_named_and_rechecked(monkeypatch):
+    monkeypatch.setattr(video_ads.shutil,'which',lambda _: None)
+    monkeypatch.setitem(sys.modules,'playwright.sync_api',None)
+    assert video_ads.video_dependencies()['missing']==['FFmpeg','ffprobe','Playwright','Chromium']
+    monkeypatch.setattr(video_ads.shutil,'which',lambda name:'/usr/bin/'+name)
+    assert video_ads.video_dependencies()['missing']==['Playwright']
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     engine = create_engine('sqlite:///' + str(tmp_path/'test.db'), connect_args={'check_same_thread':False})
@@ -83,6 +92,21 @@ def test_audio_requires_script_and_a_real_lead(client):
     assert http.post('/api/ads/audio',json={'lead_id':999,'script':'Bonjour','audio':'bad'}).status_code == 404
     assert http.post('/api/ads/audio',json={'lead_id':1,'script':'','audio':'bad'}).status_code == 400
     assert http.post('/api/ads/audio',json={'lead_id':1,'script':'Bonjour','audio':'bad'}).status_code == 400
+
+
+def test_message_endpoint_uses_server_profile_and_validates_settings(client, monkeypatch):
+    http, _ = client
+    captured = []
+    def generate(facts, tone, duration, details):
+        captured.append((facts,tone,duration,details))
+        return {'script':'Découvrez Entreprise A.','estimated_duration':3}
+    monkeypatch.setattr(video_ads,'generate_copy',generate)
+    response=http.post('/api/ads/message',json={'lead_id':1,'profile':{'name':'Profil falsifié'},'tone':'bold','duration':15,'details':'Un accueil chaleureux'})
+    assert response.status_code==200
+    assert captured[0][0]['profil']['nom']=='Entreprise A'
+    assert captured[0][1:]==('bold',15,'Un accueil chaleureux')
+    assert http.post('/api/ads/message',json={'lead_id':999}).status_code==404
+    assert http.post('/api/ads/message',json={'lead_id':1,'duration':300}).status_code==400
 
 
 @pytest.mark.skipif(not shutil.which('ffprobe'), reason='ffprobe required')
