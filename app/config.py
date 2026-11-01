@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-5"
     openai_image_model: str = "gpt-image-2"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    elevenlabs_api_key: str = ""
+    ads_media_root: str = "data/ads"
     site_ai_images: bool = True
     site_ai_max_images: int = 3
     database_url: str = "sqlite:///./data/profilefinder.db"

@@ -65,3 +65,26 @@ class JobLead(Base):
     job_id: Mapped[int]=mapped_column(ForeignKey("jobs.id"))
     lead_id: Mapped[int]=mapped_column(ForeignKey("leads.id"))
     __table_args__=(UniqueConstraint("job_id","lead_id"),)
+
+
+class AudioAd(Base):
+    __tablename__ = 'audio_ads'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey('leads.id'), index=True)
+    script: Mapped[str] = mapped_column(Text)
+    duration: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class VideoAd(Base):
+    __tablename__ = 'video_ads'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey('leads.id'), index=True)
+    audio_id: Mapped[str] = mapped_column(ForeignKey('audio_ads.id'))
+    format: Mapped[str] = mapped_column(String(20), default='portrait')
+    status: Mapped[str] = mapped_column(String(20), default='preparing')
+    progress: Mapped[int] = mapped_column(default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slides_json: Mapped[str] = mapped_column(Text, default='[]')
+    site_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

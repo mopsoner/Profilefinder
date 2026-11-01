@@ -54,6 +54,14 @@ def startup_initialize_reference_data():
     # Do not block the web server while Google resolves missing communes.
     threading.Thread(target=initialize_communes,daemon=True,name="commune-init").start()
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
+app.mount("/shared",StaticFiles(directory="shared"),name="shared")
+from .ads import router as ads_router
+app.include_router(ads_router)
+from .video_ads import router as video_ads_router, recover_interrupted_jobs
+app.include_router(video_ads_router)
+@app.on_event('startup')
+def startup_recover_video_jobs():
+    recover_interrupted_jobs()
 tpl=Jinja2Templates(directory="app/templates")
 tpl.env.filters["from_json"]=lambda value: json.loads(value or "{}")
 TYPE_CATEGORIES={

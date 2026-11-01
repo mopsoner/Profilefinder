@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 data/*.db
 data/exports/*.csv
+data/geography.json
+data/logs/
+data/ads/
