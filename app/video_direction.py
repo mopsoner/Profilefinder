@@ -2,6 +2,7 @@
 import base64
 from pathlib import Path
 import re
+from .site_style import website_art
 
 ROOT = Path(__file__).resolve().parent.parent
 LAYOUTS = ('intro', 'spotlight', 'editorial', 'statement', 'cta', 'website')
@@ -20,11 +21,17 @@ def identity(site):
     options=site.get('_video_direction') or {}
     theme = options.get('theme') if options.get('theme') not in (None,'site') else site.get('theme','dark')
     bg, fg, accent, surface, muted = PALETTES.get(theme, PALETTES['dark'])
+    if site.get('_style_version')==2 and options.get('theme') in (None,'site'):
+        art=website_art(site)
+        palette=art['palette']
+        bg,fg,accent,surface,muted=(palette[key] for key in ('background','ink','accent','surface','muted'))
     custom = options.get('accent_color') or site.get('accent_color')
     if isinstance(custom,str) and re.fullmatch(r'#[0-9a-fA-F]{6}',custom):
         accent = custom
     design = site.get('design','general')
     serif=design in ('restaurant','hospitality','beauty')
+    if site.get('_style_version')==2:
+        serif=site.get('visual_identity',{}).get('heading_font') in ('elegant','classic')
     if options.get('typography') in ('serif','sans'):
         serif=options['typography']=='serif'
     return {'theme':theme if theme in PALETTES else 'dark', 'bg':bg, 'fg':fg, 'accent':accent,

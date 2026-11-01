@@ -49,7 +49,7 @@ def test_unsafe_or_unavailable_direction_is_reported(monkeypatch):
 def test_website_receives_the_client_brief(monkeypatch):
     monkeypatch.setattr(site_generator,'settings',lambda:SimpleNamespace(openai_api_key='test',openai_model='model'))
     lead=SimpleNamespace(name='Entreprise',business_type='restaurant',city='Paris',address='',phone='',rating=None,reviews_count=0,website=None)
-    with patch('app.site_generator.httpx.post',return_value=response({'site_title':'Entreprise'})) as send:
+    with patch('app.site_generator.httpx.post',return_value=response({'site_title':'Entreprise','visual_identity':{},'pages':[{}, {}, {}]})) as send:
         site_generator.generate_lead_website(lead,{},'Un site clair avec une page services détaillée.')
     body=send.call_args.kwargs['json']
     assert 'page services détaillée' in body['input']

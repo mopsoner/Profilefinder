@@ -15,6 +15,7 @@ from .site_generator import generate_lead_website,generate_site_images
 from .lead_insights import build_insights
 from .config import settings
 from .creative_brief import clean_brief
+from .site_style import website_art
 from .job_tracking import activity_feed, job_payload, KINDS
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
@@ -77,6 +78,7 @@ def startup_recover_video_jobs():
             row.status='failed'; row.error='Traitement audio interrompu par le redémarrage. Relancez-le dans Ads.'; row.finished_at=datetime.utcnow()
         db.commit()
 tpl=Jinja2Templates(directory="app/templates")
+tpl.env.globals["website_art"]=website_art
 tpl.env.filters["from_json"]=lambda value: json.loads(value or "{}")
 TYPE_CATEGORIES={
 "Restauration & boissons":["restaurant","african_restaurant","caribbean_restaurant","french_restaurant","italian_restaurant","chinese_restaurant","indian_restaurant","japanese_restaurant","korean_restaurant","thai_restaurant","mexican_restaurant","mediterranean_restaurant","seafood_restaurant","pizza_restaurant","fast_food_restaurant","hamburger_restaurant","sandwich_shop","sushi_restaurant","steak_house","vegan_restaurant","vegetarian_restaurant","bakery","cafe","coffee_shop","bar","cocktail_bar","pub","sports_bar","wine_bar","juice_shop","ice_cream_shop","dessert_shop","meal_takeaway","meal_delivery"],
@@ -462,7 +464,14 @@ def generate_site_background(lead_id:int,job_id:int):
         try: insights=json.loads(lead.insights_json or "{}")
         except (TypeError,json.JSONDecodeError): insights={}
         brief=job.client_instructions if job else ''
-        content=generate_lead_website(lead,insights,brief)
+        recent_styles=[]
+        for value in db.scalars(select(LeadWebsite.content_json).order_by(LeadWebsite.updated_at.desc()).limit(8)):
+            try:
+                previous=json.loads(value)
+                identity=previous.get('visual_identity') or {}
+                recent_styles.append({key:identity.get(key) or previous.get(key) for key in ('direction','heading_font','hero_style','layout_style','theme')})
+            except (TypeError,ValueError,AttributeError): pass
+        content=generate_lead_website(lead,insights,brief,style_context=recent_styles)
         content['_client_instructions']=brief
         if job:
             job.stage="Génération des images du site"; job.error="PROGRESS:1/2"; db.commit()
