@@ -17,14 +17,18 @@ PALETTES = {
 
 
 def identity(site):
-    theme = site.get('theme','dark')
+    options=site.get('_video_direction') or {}
+    theme = options.get('theme') if options.get('theme') not in (None,'site') else site.get('theme','dark')
     bg, fg, accent, surface, muted = PALETTES.get(theme, PALETTES['dark'])
-    custom = site.get('accent_color')
+    custom = options.get('accent_color') or site.get('accent_color')
     if isinstance(custom,str) and re.fullmatch(r'#[0-9a-fA-F]{6}',custom):
         accent = custom
     design = site.get('design','general')
+    serif=design in ('restaurant','hospitality','beauty')
+    if options.get('typography') in ('serif','sans'):
+        serif=options['typography']=='serif'
     return {'theme':theme if theme in PALETTES else 'dark', 'bg':bg, 'fg':fg, 'accent':accent,
-            'surface':surface, 'muted':muted, 'serif':design in ('restaurant','hospitality','beauty'),
+            'surface':surface, 'muted':muted, 'serif':serif, 'show_contact':options.get('show_contact',True),
             'uppercase':design in ('automotive','trades','fitness')}
 
 

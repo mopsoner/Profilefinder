@@ -142,6 +142,9 @@ def compose_slides(directory, slides, lead, format_name, site=None, progress=lam
                 image=base64.b64encode((directory/f'page-{slide["page_index"]}.png').read_bytes()).decode() if art['layout']=='website' else ''
                 headline_size=max(52,round((122 if height>width else 98)*min(1,math.sqrt(75/max(75,len(art['headline']))))))
                 body_size=max(24 if height>width else 19,round((40 if height>width else 31)*min(1,math.sqrt(200/max(200,len(art['support']))))))
+                if (site.get('_video_direction') or {}).get('text_size')=='large':
+                    headline_size=round(headline_size*1.15)
+                    body_size=round(body_size*1.12)
                 html=templates.get_template('video_slide.html').render(art=art,lead=lead,index=index+1,count=len(slides),portrait=height>width,headline_size=headline_size,body_size=body_size,website_image=image,width=width,height=height)
                 page.set_content(html,wait_until='load')
                 for attempt in range(12):
@@ -182,7 +185,8 @@ def scene_timing(slides,duration,fps=30):
     return frames,overlap
 
 
-def encode_video(directory,audio_path,slides,duration,progress):
+def encode_video(directory,audio_path,slides,duration,progress,options=None):
+    options=options or {}
     fps=30
     frames,overlap=scene_timing(slides,duration,fps)
     width,height=None,None
@@ -193,9 +197,10 @@ def encode_video(directory,audio_path,slides,duration,progress):
         if width is None:
             probe=subprocess.run(['ffprobe','-v','error','-show_entries','stream=width,height','-of','json',str(directory/f'background-{index}.png')],capture_output=True,check=True,timeout=15)
             stream=json.loads(probe.stdout)['streams'][0];width,height=stream['width'],stream['height']
-        zoom=f"1.025+0.055*on/{max(1,total_frames-1)}" if index%2==0 else f"1.08-0.055*on/{max(1,total_frames-1)}"
+        amplitude={'calm':.025,'balanced':.055,'dynamic':.09}.get(options.get('motion'),.055)
+        zoom=f"1.025+{amplitude}*on/{max(1,total_frames-1)}" if index%2==0 else f"{1.025+amplitude}-{amplitude}*on/{max(1,total_frames-1)}"
         pan=f"(iw-iw/zoom)*on/{max(1,total_frames-1)}" if index%2==0 else f"(iw-iw/zoom)*(1-on/{max(1,total_frames-1)})"
-        entrance=min(.55,seconds/3)
+        entrance=min({'calm':.8,'balanced':.55,'dynamic':.3}.get(options.get('motion'),.55),seconds/3)
         filters=(f"[0:v]scale={width*2}:{height*2},zoompan=z='{zoom}':x='{pan}':y='(ih-ih/zoom)/2':d=1:s={width}x{height}:fps={fps},format=yuv420p[bg];"
                  f"[1:v]format=rgba,fade=t=in:st=0:d={entrance}:alpha=1[copy];"
                  f"[bg][copy]overlay=x=0:y='max(0,48*(1-t/{entrance}))':eval=frame:shortest=1[motion];"
@@ -206,13 +211,14 @@ def encode_video(directory,audio_path,slides,duration,progress):
         cmd+=['-filter_complex',filters,'-map','[out]','-frames:v',str(total_frames),'-c:v','libx264','-preset','veryfast','-crf','20','-threads','2','-an',str(directory/f'clip-{index}.mp4')]
         subprocess.run(cmd,capture_output=True,timeout=600,check=True)
         progress(round((index+1)/len(slides)*75))
-    assemble_video(directory,audio_path,frames,overlap,duration)
+    assemble_video(directory,audio_path,frames,overlap,duration,options)
     progress(100)
     for clip in directory.glob('clip-*.mp4'):
         clip.unlink()
 
 
-def assemble_video(directory,audio_path,frames,overlap,duration):
+def assemble_video(directory,audio_path,frames,overlap,duration,options=None):
+    options=options or {}
     fps=30
     cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-filter_complex_threads','1']
     for index in range(len(frames)):
@@ -222,7 +228,7 @@ def assemble_video(directory,audio_path,frames,overlap,duration):
     previous='v0';offset=0
     for index in range(1,len(frames)):
         offset+=frames[index-1]/fps
-        transition='fade' if index%2 else 'smoothleft'
+        transition=options.get('transition') or ('fade' if index%2 else 'smoothleft')
         filters+=f'[{previous}][v{index}]xfade=transition={transition}:duration={overlap/fps}:offset={offset},fps=30[x{index}];'
         previous=f'x{index}'
     filters+=f'[{previous}]fade=t=in:d=0.15,fade=t=out:st={max(0,duration-.2)}:d=0.2,format=yuv420p[out]'

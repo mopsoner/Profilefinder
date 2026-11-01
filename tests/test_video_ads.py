@@ -182,9 +182,12 @@ def test_storyboard_uses_the_message_saved_with_its_audio(client, monkeypatch):
     monkeypatch.setattr(video_ads,'slot',threading.BoundedSemaphore(1))
     monkeypatch.setattr(video_ads.pool,'submit',lambda *args:None)
     try:
-        response=http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':'portrait','script':'Un autre texte ne doit pas remplacer le message audio.'})
+        response=http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':'portrait','script':'Un autre texte ne doit pas remplacer le message audio.','client_instructions':'Un rythme calme et un fond beige.'})
         assert response.status_code==200
         assert ' '.join(s['caption'] for s in response.json()['slides'])==script
+        assert response.json()['client_instructions']=='Un rythme calme et un fond beige.'
+        restored=http.get('/api/video-ads/'+response.json()['id']).json()
+        assert restored['client_instructions']=='Un rythme calme et un fond beige.'
     finally:
         video_ads.slot.release()
 

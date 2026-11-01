@@ -14,6 +14,7 @@ from .places import Places
 from .site_generator import generate_lead_website,generate_site_images
 from .lead_insights import build_insights
 from .config import settings
+from .creative_brief import clean_brief
 from .communes import get_communes,get_departments,get_or_resolve_commune,initialize_communes,initialize_department,force_resolve_commune,commune_stats,add_department,delete_department,commune_coverage
 
 Base.metadata.create_all(engine)
@@ -26,6 +27,7 @@ with engine.begin() as conn:
         if "postal_codes" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN postal_codes TEXT"))
         if "kind" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN kind VARCHAR(30) DEFAULT 'search'"))
         if "lead_id" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN lead_id INTEGER"))
+        if "client_instructions" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN client_instructions TEXT NOT NULL DEFAULT ''"))
         lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
@@ -296,6 +298,9 @@ def search(city:str=Form(...),latitude:float=Form(...),longitude:float=Form(...)
 def rerun_search(job_id:int,db:Session=Depends(get_db)):
     source=db.get(Job,job_id)
     if not source: return RedirectResponse("/search",303)
+    if source.kind=="site_ai" and source.lead_id:
+        queue_site_generation(source.lead_id,source.client_instructions)
+        return RedirectResponse("/sites",303)
     try: business_types=json.loads(source.types)
     except (TypeError,json.JSONDecodeError): business_types=[]
     max_results=source.max_results or 20
@@ -456,7 +461,9 @@ def generate_site_background(lead_id:int,job_id:int):
         if not lead: raise RuntimeError("Prospect introuvable")
         try: insights=json.loads(lead.insights_json or "{}")
         except (TypeError,json.JSONDecodeError): insights={}
-        content=generate_lead_website(lead,insights)
+        brief=job.client_instructions if job else ''
+        content=generate_lead_website(lead,insights,brief)
+        content['_client_instructions']=brief
         if job:
             job.error="PROGRESS:1/2"; db.commit()
         content=generate_site_images(lead_id,content)
@@ -475,7 +482,8 @@ def generate_site_background(lead_id:int,job_id:int):
         raise
     finally: db.close()
 
-def queue_site_generation(lead_id:int):
+def queue_site_generation(lead_id:int,client_instructions:str=""):
+    client_instructions=clean_brief(client_instructions)
     with site_ai_lock:
         current=site_ai_futures.get(lead_id)
         if current and not current.done(): return False
@@ -483,7 +491,7 @@ def queue_site_generation(lead_id:int):
         try:
             lead=db.get(Lead,lead_id)
             if not lead: return False
-            job=Job(city=lead.name,latitude=lead.latitude or 0,longitude=lead.longitude or 0,radius=0,types="site_ai",max_results=1,rings=0,status="queued",kind="site_ai",lead_id=lead_id)
+            job=Job(city=lead.name,latitude=lead.latitude or 0,longitude=lead.longitude or 0,radius=0,types="site_ai",max_results=1,rings=0,status="queued",kind="site_ai",lead_id=lead_id,client_instructions=client_instructions)
             db.add(job); db.commit(); db.refresh(job); job_id=job.id
         finally: db.close()
         future=site_ai_pool.submit(generate_site_background,lead_id,job_id)
@@ -499,9 +507,9 @@ def site_generation_status(lead_id:int):
     return "error" if future.exception() else "completed"
 
 @app.post("/sites/{lead_id}/generate")
-def sites_generate(lead_id:int,db:Session=Depends(get_db)):
+def sites_generate(lead_id:int,client_instructions:str=Form('',max_length=3000),db:Session=Depends(get_db)):
     if not db.get(Lead,lead_id): return RedirectResponse("/sites",303)
-    queue_site_generation(lead_id)
+    queue_site_generation(lead_id,client_instructions)
     return RedirectResponse("/sites",303)
 
 @app.post("/sites/{lead_id}/delete")
@@ -543,9 +551,9 @@ def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(g
     return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"pages":pages,"page":current,"photo_count":photo_count})
 
 @app.post("/leads/{lead_id}/web/generate")
-def generate_lead_web(lead_id:int,db:Session=Depends(get_db)):
+def generate_lead_web(lead_id:int,client_instructions:str=Form('',max_length=3000),db:Session=Depends(get_db)):
     if not db.get(Lead,lead_id): return RedirectResponse("/leads",303)
-    queue_site_generation(lead_id)
+    queue_site_generation(lead_id,client_instructions)
     return RedirectResponse(f"/leads/{lead_id}/web?generating=1",303)
 
 @app.get("/api/leads/{lead_id}/photos")

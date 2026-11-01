@@ -40,6 +40,8 @@ Le thème et la structure partagés se trouvent dans `shared/theme.css` et `shar
 
 La page **Video Ads** transforme les audios sauvegardés des leads, leurs scripts et l’identité visuelle de leurs sites en publicités MP4 animées : scènes originales, texte animé, mouvements de caméra et transitions fluides. Vertical 9:16 par défaut, avec storyboard éditable et formats paysage/carré. Installation et parcours : [docs/video-ads.md](docs/video-ads.md).
 
+Sites IA et Video Ads disposent d’un champ facultatif **Instructions du client** pour orienter la création et conserver le brief. Voir [docs/client-instructions.md](docs/client-instructions.md).
+
 ## Tests de l’application
 
 ```bash

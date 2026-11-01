@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block content %}
 <h1>Site vitrine - {{lead.name}}</h1>
 <div class="panel"><p class="muted">Aucune vitrine IA n'a encore ete generee pour ce prospect.</p>
-<form method="post" action="/leads/{{lead.id}}/web/generate"><button>Generer le site IA</button></form>
+<form method="post" action="/leads/{{lead.id}}/web/generate"><label>Instructions du client (facultatif)<textarea name="client_instructions" rows="4" maxlength="3000" placeholder="Décrivez le style, les exemples de référence, les contenus et les attentes du client…"></textarea></label><button>Générer le site IA</button></form>
 <p><a href="/leads/{{lead.id}}">Retour au prospect</a></p></div>
 {% endblock %}

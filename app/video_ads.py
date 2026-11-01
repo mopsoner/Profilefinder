@@ -22,6 +22,7 @@ from ads.server import decode_audio
 import httpx
 from .ad_copy import TONES, lead_facts, generate_copy, CopyUnavailable
 from .video_direction import LAYOUT_NAMES, scene_layout
+from .creative_brief import clean_brief, video_direction_from_brief
 
 router = APIRouter()
 logger = logging.getLogger('profilefinder.video_ads')
@@ -191,6 +192,7 @@ def lead_context(lead_id: int, db: Session = Depends(get_db)):
 
 
 def project_payload(row):
+    site=json.loads(row.site_json)
     slides=json.loads(row.slides_json)
     for index,slide in enumerate(slides):
         if slide.get('layout') not in LAYOUT_NAMES:
@@ -199,6 +201,7 @@ def project_payload(row):
         slide['preview_url']=f'/api/video-ads/{row.id}/scenes/{index}?v={preview.stat().st_mtime_ns}' if preview.is_file() else None
     return {'id': row.id, 'lead_id': row.lead_id, 'audio_id': row.audio_id, 'format': row.format, 'status': row.status,
             'progress': row.progress, 'error': row.error, 'slides': slides, 'layouts':LAYOUT_NAMES,
+            'client_instructions':site.get('_video_client_instructions',''), 'creative_direction':site.get('_video_direction',{}),
             'created_at': row.created_at.isoformat(), 'video_url': f'/api/video-ads/{row.id}/video' if row.status == 'completed' else None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page', 'url': f'/api/video-ads/{row.id}/pages/{i}'} for i, p in enumerate(site_pages(json.loads(row.site_json), 'Site'))]}
 
@@ -225,6 +228,20 @@ def run_job(identifier, mode):
             audio_path, duration = MEDIA / 'audio' / f'{audio.id}.mp3', audio.duration
         # Release the database connection before expensive browser and encoder work.
         directory.mkdir(parents=True, exist_ok=True)
+        brief=site.get('_video_client_instructions','')
+        if site.get('_video_brief_applied')!=brief:
+            if brief:
+                options=video_direction_from_brief(brief,site)
+                site['_video_direction']=options
+                chosen={'editorial':'editorial','typography':'statement','website':'website'}.get(options['composition'])
+                if chosen:
+                    for index,slide in enumerate(slides):
+                        if index<len(slides)-1 or len(slides)==1:
+                            slide['layout']=chosen
+            else:
+                site.pop('_video_direction',None)
+            site['_video_brief_applied']=brief
+            update(identifier,site_json=json.dumps(site),slides_json=json.dumps(slides))
         if mode == 'prepare':
             capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=round(n*.45)), format_name)
             compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=45+round(n*.55)))
@@ -234,11 +251,11 @@ def run_job(identifier, mode):
             update(identifier,status='ready',progress=100)
         else:
             compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=round(n*.2)))
-            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=20+round(n*.8)))
+            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=20+round(n*.8)),site.get('_video_direction'))
             update(identifier, status='completed', progress=100)
     except Exception as error:
         logger.exception('Video Ads job failed: %s', identifier)
-        message = str(error) if isinstance(error, ValueError) else 'Le rendu a échoué. Vérifiez Chromium/Playwright, FFmpeg et les médias locaux, puis réessayez.'
+        message = str(error) if isinstance(error, ValueError) else 'OpenAI n’a pas pu interpréter les instructions du client. Vérifiez la connexion, la clé et les crédits, puis réessayez.' if isinstance(error,httpx.HTTPError) else 'Le rendu a échoué. Vérifiez Chromium/Playwright, FFmpeg et les médias locaux, puis réessayez.'
         update(identifier, status='failed', error=message)
     finally:
         slot.release()
@@ -247,6 +264,10 @@ def run_job(identifier, mode):
 @router.post('/api/video-ads/prepare')
 async def prepare(request: Request, db: Session = Depends(get_db)):
     data = await read_json(request, 100000)
+    try:
+        brief=clean_brief(data.get('client_instructions',''))
+    except ValueError as error:
+        raise HTTPException(400,str(error))
     if not await run_in_threadpool(video_tools_ready):
         missing = (await run_in_threadpool(video_dependencies))['missing']
         raise HTTPException(503, 'Outils vidéo manquants sur le serveur : '+', '.join(missing)+'. Exécutez scripts/install.sh puis redémarrez ProfileFinder.')
@@ -269,6 +290,7 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
     except (ValueError, TypeError):
         raise HTTPException(400, 'Le contenu du site est invalide. Régénérez-le dans Sites IA.')
     pages = site_pages(site, lead.name)
+    site['_video_client_instructions']=brief
     slides = split_script(audio.script, pages, audio.duration)
     if not slot.acquire(blocking=False):
         raise HTTPException(409, 'Un rendu est déjà en cours. Réessayez après sa fin.')
@@ -302,6 +324,12 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
     audio = db.get(AudioAd, row.audio_id)
     if not audio:
         raise HTTPException(400, 'Audio supprimé.')
+    site=json.loads(row.site_json)
+    try:
+        brief=clean_brief(data.get('client_instructions',site.get('_video_client_instructions','')))
+    except ValueError as error:
+        raise HTTPException(400,str(error))
+    site['_video_client_instructions']=brief
     try:
         slides = validate_slides(data.get('slides'), len(site_pages(json.loads(row.site_json), 'Site')), audio.duration)
     except ValueError as error:
@@ -312,6 +340,7 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
         raise HTTPException(409, 'Un rendu est déjà en cours. Réessayez après sa fin.')
     try:
         row.slides_json = json.dumps(slides)
+        row.site_json = json.dumps(site)
         preview_only=data.get('preview_only') is True
         row.status, row.progress, row.error = 'preparing' if preview_only else 'rendering', 0, None
         db.commit()

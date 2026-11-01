@@ -23,6 +23,7 @@ class Job(Base):
     finished_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
     kind: Mapped[str]=mapped_column(String(30),default="search")
     lead_id: Mapped[int|None]=mapped_column(nullable=True)
+    client_instructions: Mapped[str]=mapped_column(Text,default="")
 
 class Lead(Base):
     __tablename__="leads"
