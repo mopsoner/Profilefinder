@@ -26,9 +26,9 @@ Les clés restent côté serveur. Les appels consomment les crédits du fourniss
 
 ## Périmètre
 
-- Interface française responsive, profil d’entreprise modifiable, proposition de script par modèles locaux, copie et estimation de durée.
+- Interface française responsive, profil d’entreprise modifiable, génération de script OpenAI à partir du dossier du prospect, copie et estimation de durée.
 - Génération vocale OpenAI par défaut et ElevenLabs en option, si configurés, import et écoute de voix, import de musique, volumes, ducking et export MP3 réel avec FFmpeg.
-- Le formulaire Ads permet de sélectionner un lead réel ou un profil libre. Après le mixage, **Enregistrer et créer une Video Ad** conserve l’audio et son texte pour le lead et ouvre le studio vidéo. La génération de texte utilise encore des modèles locaux.
+- Le formulaire Ads permet de sélectionner un lead réel ou un profil libre. Après le mixage, **Enregistrer et créer une Video Ad** conserve l’audio et son texte pour le lead et ouvre le studio vidéo. La génération du message utilise OpenAI avec le profil, les avis, les analyses et le site du prospect ; le résultat reste éditable.
 - Le projet non enregistré reste en mémoire dans la page ; recharger efface le travail. Les audios associés à un lead sont conservés sur le serveur pour Video Ads.
 - Les polices Google sont facultatives ; des polices système prennent le relais sans accès réseau.
 

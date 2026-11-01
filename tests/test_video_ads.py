@@ -85,6 +85,21 @@ def test_audio_requires_script_and_a_real_lead(client):
     assert http.post('/api/ads/audio',json={'lead_id':1,'script':'Bonjour','audio':'bad'}).status_code == 400
 
 
+def test_message_endpoint_uses_server_profile_and_validates_settings(client, monkeypatch):
+    http, _ = client
+    captured = []
+    def generate(facts, tone, duration, details):
+        captured.append((facts,tone,duration,details))
+        return {'script':'Découvrez Entreprise A.','estimated_duration':3}
+    monkeypatch.setattr(video_ads,'generate_copy',generate)
+    response=http.post('/api/ads/message',json={'lead_id':1,'profile':{'name':'Profil falsifié'},'tone':'bold','duration':15,'details':'Un accueil chaleureux'})
+    assert response.status_code==200
+    assert captured[0][0]['profil']['nom']=='Entreprise A'
+    assert captured[0][1:]==('bold',15,'Un accueil chaleureux')
+    assert http.post('/api/ads/message',json={'lead_id':999}).status_code==404
+    assert http.post('/api/ads/message',json={'lead_id':1,'duration':300}).status_code==400
+
+
 @pytest.mark.skipif(not shutil.which('ffprobe'), reason='ffprobe required')
 def test_audio_persists_and_can_be_reused(client):
     http, sessions = client

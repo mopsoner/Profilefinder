@@ -20,6 +20,8 @@ from .db import SessionLocal, get_db
 from .models import Lead, LeadWebsite, AudioAd, VideoAd
 from .video_render import MEDIA, ROOT, FORMATS, audio_duration, site_pages, split_script, validate_slides, capture_pages, compose_slides, encode_video
 from ads.server import decode_audio
+import httpx
+from .ad_copy import TONES, lead_facts, generate_copy, CopyUnavailable
 
 router = APIRouter()
 logger = logging.getLogger('profilefinder.video_ads')
@@ -70,6 +72,44 @@ def audio_payload(row):
 @router.get('/api/ads/leads')
 def lead_options(db: Session = Depends(get_db)):
     return [{'id': lead.id, 'name': lead.name, 'activity': lead.business_type or '', 'city': lead.city or '', 'address': lead.address or ''} for lead in db.scalars(select(Lead).order_by(Lead.name)).all()]
+
+
+@router.post('/api/ads/message')
+async def prepare_message(request: Request, db: Session = Depends(get_db)):
+    data = await read_json(request, 15000)
+    tone, duration, details = data.get('tone','warm'), data.get('duration',30), data.get('details','')
+    if not isinstance(tone,str) or tone not in TONES or type(duration) is not int or duration not in (15,30,45):
+        raise HTTPException(400, 'Ambiance ou durée invalide.')
+    if not isinstance(details,str) or len(details)>2000:
+        raise HTTPException(400, 'Complément limité à 2 000 caractères.')
+    lead_id = data.get('lead_id')
+    if lead_id is not None:
+        if type(lead_id) is not int:
+            raise HTTPException(400, 'Identifiant de prospect invalide.')
+        lead = db.get(Lead, lead_id)
+        if not lead:
+            raise HTTPException(404, 'Prospect introuvable.')
+        website = db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
+        facts = lead_facts(lead, website)
+    else:
+        profile = data.get('profile')
+        if not isinstance(profile,dict) or not all(isinstance(profile.get(key),str) and 1<=len(profile[key].strip())<=180 for key in ('name','activity')):
+            raise HTTPException(400, 'Sélectionnez un prospect ou renseignez son nom et son activité.')
+        city = profile.get('city','')
+        if not isinstance(city,str) or len(city)>100:
+            raise HTTPException(400, 'Ville invalide.')
+        facts = {'profil':{'nom':profile['name'],'activite':profile['activity'],'ville':city}}
+    try:
+        result = await run_in_threadpool(generate_copy, facts, tone, duration, details)
+        return {**result, 'lead_id':lead_id}
+    except CopyUnavailable as error:
+        raise HTTPException(503, str(error))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(502, f'OpenAI a refusé la génération (HTTP {error.response.status_code}). Vérifiez la clé, le modèle et vos crédits.')
+    except httpx.RequestError:
+        raise HTTPException(502, 'OpenAI est injoignable. Réessayez dans quelques instants.')
 
 
 @router.post('/api/ads/audio')
