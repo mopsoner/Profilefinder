@@ -26,7 +26,7 @@ $('generate-voice').addEventListener('click',()=>busy('generate-voice',async()=>
  if(!$('ad-text').value.trim())throw new Error('Préparez votre texte publicitaire avant de générer la voix.');
  if(provider==='elevenlabs'&&!$('voice-id').value.trim())throw new Error('Renseignez un identifiant de voix ElevenLabs.');
  const voiceScript=$('ad-text').value;
- const blob=await request('/api/voice',{provider,text:voiceScript,voice:$('openai-voice').value,instructions:$('voice-instructions').value,voice_id:$('voice-id').value.trim()});
+ const blob=await request('/api/voice',{lead_id:leadId?Number(leadId):null,provider,text:voiceScript,voice:$('openai-voice').value,instructions:$('voice-instructions').value,voice_id:$('voice-id').value.trim()});
  if($('ads-lead').value===leadId){setVoice(blob,provider==='openai'?'Voix OpenAI.mp3':'Voix ElevenLabs.mp3');state.voiceScript=voiceScript;}
  if(leadId){try{await saveAssociatedAudio(blob,voiceScript,leadId);toast('Voix off et message enregistrés pour ce prospect. Retrouvez-les dans Video Ads.');}catch(error){toast('Voix générée, mais non sauvegardée : '+error.message+' Enregistrez le mix pour réessayer.');}}
  else toast('Voix off générée. Sélectionnez un prospect avant la génération pour conserver son audio et son message.');
@@ -41,7 +41,7 @@ async function saveAssociatedAudio(blob,script,leadId){
 $('export').addEventListener('click',()=>busy('export',async()=>{
  if(!state.voice)throw new Error('Générez ou importez une voix off pour créer votre spot.');
  const voice=state.voice,music=state.music,script=state.voiceScript||$('ad-text').value,leadId=$('ads-lead').value;
- const data={voice:await base64(voice),music:music?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};
+ const data={lead_id:leadId?Number(leadId):null,voice:await base64(voice),music:music?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};
  const blob=await request('/api/mix',data);invalidateMix();state.mixBlob=blob;state.exportScript=script;state.exportLeadId=leadId;state.mixURL=URL.createObjectURL(blob);$('save-video-audio').hidden=false;$('mix-player').src=state.mixURL;$('mix-player').hidden=false;$('download').href=state.mixURL;$('download').download=($('company').value.trim().replace(/[^\p{L}\p{N}-]+/gu,'-')||'publicite')+'-ads.mp3';$('download').hidden=false;
  if(leadId&&script.trim()){
    $('save-video-audio').disabled=true;

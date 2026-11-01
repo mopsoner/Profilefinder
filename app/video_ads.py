@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from .db import SessionLocal, get_db
-from .models import Lead, LeadWebsite, AudioAd, VideoAd
+from .models import Lead, LeadWebsite, AudioAd, VideoAd, Job
+from .job_tracking import start_task, finish_task
 from .video_render import MEDIA, ROOT, FORMATS, audio_duration, site_pages, split_script, validate_slides, capture_pages, compose_slides, encode_video
 from ads.server import decode_audio
 import httpx
@@ -81,6 +82,27 @@ def lead_options(db: Session = Depends(get_db)):
     return [{'id': lead.id, 'name': lead.name, 'activity': lead.business_type or '', 'city': lead.city or '', 'address': lead.address or ''} for lead in db.scalars(select(Lead).order_by(Lead.name)).all()]
 
 
+def tracked_message(lead_id, facts, tone, duration, details):
+    with SessionLocal() as db:
+        task=start_task(db,'audio_copy',lead_id,stage='Rédaction du message publicitaire · OpenAI')
+        db.commit()
+        identifier=task.id
+    try:
+        result=generate_copy(facts,tone,duration,details)
+    except Exception as error:
+        message=str(error) if isinstance(error,(ValueError,CopyUnavailable)) else 'OpenAI n’a pas pu générer le message. Vérifiez la connexion, la clé et les crédits.'
+        with SessionLocal() as db:
+            task=db.get(Job,identifier)
+            if task: finish_task(task,message)
+            db.commit()
+        raise
+    with SessionLocal() as db:
+        task=db.get(Job,identifier)
+        if task: finish_task(task)
+        db.commit()
+    return result
+
+
 @router.post('/api/ads/message')
 async def prepare_message(request: Request, db: Session = Depends(get_db)):
     data = await read_json(request, 15000)
@@ -107,7 +129,7 @@ async def prepare_message(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(400, 'Ville invalide.')
         facts = {'profil':{'nom':profile['name'],'activite':profile['activity'],'ville':city}}
     try:
-        result = await run_in_threadpool(generate_copy, facts, tone, duration, details)
+        result = await run_in_threadpool(tracked_message, lead_id, facts, tone, duration, details)
         return {**result, 'lead_id':lead_id}
     except CopyUnavailable as error:
         raise HTTPException(503, str(error))
@@ -211,10 +233,16 @@ def project_payload(row):
 
 
 def update(identifier, **fields):
+    stage=fields.pop("stage",None)
     with SessionLocal() as db:
         row = db.get(VideoAd, identifier)
         for key, value in fields.items():
             setattr(row, key, value)
+        for task in db.scalars(select(Job).where(Job.resource_id==identifier,Job.status=='running')):
+            if stage: task.stage=stage
+            if 'progress' in fields: task.error=f"PROGRESS:{fields['progress']}/100"
+            if fields.get('status') in ('ready','completed','failed'):
+                finish_task(task,fields.get('error') if fields.get('status')=='failed' else None)
         db.commit()
 
 
@@ -232,6 +260,7 @@ def run_job(identifier, mode):
             audio_path, duration = MEDIA / 'audio' / f'{audio.id}.mp3', audio.duration
         # Release the database connection before expensive browser and encoder work.
         directory.mkdir(parents=True, exist_ok=True)
+        update(identifier,stage="Interprétation des instructions client")
         brief=site.get('_video_client_instructions','')
         if site.get('_video_brief_applied')!=brief:
             if brief:
@@ -248,18 +277,24 @@ def run_job(identifier, mode):
             update(identifier,site_json=json.dumps(site),slides_json=json.dumps(slides))
         cinematic=site.get('_video_visual_mode')=='cinematic'
         if cinematic:
-            slides=ensure_shots(directory,site,slides,lead_data,format_name,lambda n:update(identifier,progress=round(n*.5)))
+            update(identifier,stage="Planification et génération des visuels IA")
+            slides=ensure_shots(directory,site,slides,lead_data,format_name,lambda n:update(identifier,progress=round(n*(.35 if mode=="render" else .5))))
             update(identifier,slides_json=json.dumps(slides))
         if mode == 'prepare':
+            update(identifier,stage='Capture des pages du site')
             capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=(50 if cinematic else 0)+round(n*(.2 if cinematic else .45))), format_name)
+            update(identifier,stage='Composition des plans')
             compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(70 if cinematic else 45)+round(n*(.3 if cinematic else .55))))
             update(identifier, status='ready', progress=100)
         elif mode=='preview':
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=n))
+            update(identifier,stage='Actualisation des plans')
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(50 if cinematic else 0)+round(n*(.5 if cinematic else 1))))
             update(identifier,status='ready',progress=100)
         else:
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=round(n*.2)))
-            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=20+round(n*.8)),site.get('_video_direction'))
+            update(identifier,stage='Composition des plans')
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=(35 if cinematic else 0)+round(n*(.15 if cinematic else .2))))
+            update(identifier,stage='Encodage et assemblage MP4 · FFmpeg')
+            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=(50 if cinematic else 20)+round(n*(.5 if cinematic else .8))),site.get('_video_direction'))
             update(identifier, status='completed', progress=100)
     except Exception as error:
         logger.exception('Video Ads job failed: %s', identifier)
@@ -311,9 +346,14 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
     try:
         row = VideoAd(id=uuid4().hex, lead_id=lead_id, audio_id=audio_id, format=format_name, site_json=json.dumps(site), slides_json=json.dumps(slides), status='preparing')
         db.add(row)
+        task=start_task(db,'video_prepare',lead_id,row.id,'Préparation du projet vidéo')
+        task.client_instructions=brief
         db.commit()
         pool.submit(run_job, row.id, 'prepare')
     except Exception:
+        db.rollback()
+        if db.get(VideoAd,row.id):
+            update(row.id,status='failed',error='Impossible de démarrer le traitement vidéo. Réessayez dans le studio.')
         slot.release()
         raise
     return project_payload(row)
@@ -361,9 +401,14 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
         row.site_json = json.dumps(site)
         preview_only=data.get('preview_only') is True
         row.status, row.progress, row.error = 'preparing' if preview_only else 'rendering', 0, None
+        task=start_task(db,'video_preview' if preview_only else 'video_render',row.lead_id,row.id,'Actualisation des plans' if preview_only else 'Préparation du rendu MP4')
+        task.client_instructions=brief
         db.commit()
         pool.submit(run_job, row.id, 'preview' if preview_only else 'render')
     except Exception:
+        db.rollback()
+        if db.get(VideoAd,row.id):
+            update(row.id,status='failed',error='Impossible de démarrer le traitement vidéo. Réessayez dans le studio.')
         slot.release()
         raise
     return project_payload(row)
@@ -407,4 +452,6 @@ def recover_interrupted_jobs():
         for row in db.scalars(select(VideoAd).where(VideoAd.status.in_(['preparing', 'rendering']))).all():
             row.status = 'failed'
             row.error = 'Le serveur a redémarré pendant le traitement. Préparez à nouveau les captures ou relancez le rendu.'
+        for task in db.scalars(select(Job).where(Job.kind.in_(['video_prepare','video_preview','video_render']),Job.status.in_(['queued','running']))):
+            finish_task(task,'Traitement vidéo interrompu par le redémarrage. Relancez-le dans Video Ads.')
         db.commit()

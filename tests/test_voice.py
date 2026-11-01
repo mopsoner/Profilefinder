@@ -54,7 +54,14 @@ def test_invalid_inputs_never_reach_provider(config, data):
         send.assert_not_called()
 
 
-def test_api_serves_audio_and_reports_configuration_without_secrets(config):
+def test_api_serves_audio_and_reports_configuration_without_secrets(config, tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base
+    from app import ads
+    engine=create_engine('sqlite:///'+str(tmp_path/'audio.db'),connect_args={'check_same_thread':False})
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(ads,'SessionLocal',sessionmaker(bind=engine,expire_on_commit=False))
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as client:
