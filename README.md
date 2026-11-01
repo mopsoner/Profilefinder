@@ -32,7 +32,15 @@ Dans `.env`, renseigner `GOOGLE_PLACES_API_KEY`. Activer Places API (New) dans G
 
 Ouvrir ensuite `http://IP_DU_SERVEUR:8000`.
 
-## Tests
+## Interface
+
+Le dashboard, les recherches, les prospects, Sites IA, Ads, les jobs et les opérations partagent désormais l’identité sombre et néon d’Ads Studio. La navigation est commune et adaptée au mobile.
+
+Le thème et la structure partagés se trouvent dans `shared/theme.css` et `shared/layout.js`. Les composants métier sont dans `app/static/style.css`. Les vitrines clients générées conservent leur design propre. Voir `ads/README.md` pour la voix off et le mixage audio.
+
+La page **Video Ads** transforme les audios sauvegardés des leads, leurs scripts et les captures HD de leurs sites en publicités slideshow MP4. Vertical 9:16 par défaut, avec storyboard éditable et formats paysage/carré. Installation et parcours : [docs/video-ads.md](docs/video-ads.md).
+
+## Tests de l’application
 
 ```bash
 PYTHONPATH=. pytest -q
