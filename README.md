@@ -34,9 +34,9 @@ Ouvrir ensuite `http://IP_DU_SERVEUR:8000`.
 
 ## Interface
 
-Le dashboard, les recherches, les prospects, Sites IA, Ads, les jobs et les opérations partagent désormais l’identité sombre et néon d’Ads Studio. La navigation est commune et adaptée au mobile.
+Le dashboard, les recherches, les prospects, Sites IA, Ads, les jobs et les opérations partagent désormais une identité claire, avec fond gris très pâle, surfaces blanches et accents verts/violets. La mise en page d’Ads Studio est conservée. La navigation est commune et adaptée au mobile.
 
-Le thème et la structure partagés se trouvent dans `shared/theme.css` et `shared/layout.js`. Les composants métier sont dans `app/static/style.css`. Les vitrines clients générées conservent leur design propre. Voir `ads/README.md` pour la voix off et le mixage audio.
+Le thème et la structure partagés se trouvent dans `shared/theme.css` et `shared/layout.js`. Les composants métier sont dans `app/static/style.css` ; la palette claire commune est dans `app/static/light-theme.css`, activée par `data-theme="light"`. Les vitrines clients générées conservent leur design propre. Voir `ads/README.md` pour la voix off et le mixage audio.
 
 La page **Video Ads** transforme les audios sauvegardés des leads, leurs scripts et l’identité visuelle de leurs sites en publicités MP4 animées : scènes originales, texte animé, mouvements de caméra et transitions fluides. Vertical 9:16 par défaut, avec storyboard éditable et formats paysage/carré. Installation et parcours : [docs/video-ads.md](docs/video-ads.md).
 
