@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     openai_tts_model: str = "gpt-4o-mini-tts"
     elevenlabs_api_key: str = ""
     ads_media_root: str = "data/ads"
+    video_ai_max_images: int = 4
     site_ai_images: bool = True
     site_ai_max_images: int = 3
     database_url: str = "sqlite:///./data/profilefinder.db"

@@ -119,6 +119,13 @@ def test_audio_must_belong_to_selected_lead(client):
     assert http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':[]}).status_code == 400
 
 
+def test_cinematic_mode_requires_configured_openai(client,monkeypatch):
+    http,_=client
+    monkeypatch.setattr(video_ads,'can_generate_visuals',lambda:False)
+    response=http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':'portrait','visual_mode':'cinematic'})
+    assert response.status_code==503 and 'OpenAI' in response.json()['detail']
+
+
 def test_scoped_video_studio_preserves_prospect_context(client):
     http, _ = client
     response=http.get('/leads/1/video-ads')

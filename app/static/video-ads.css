@@ -10,3 +10,5 @@
 .slide-thumbnail img{object-fit:contain;object-position:center;background:#090c13}.slide-thumbnail{height:210px}.slide-thumbnail:after{background:linear-gradient(0deg,#0d111966,transparent 25%)}.slide-controls{grid-template-columns:minmax(0,1fr) 80px}.slide-controls>label:nth-child(3){grid-column:1/-1}.slide-order{grid-column:1/-1;justify-content:flex-end}
 
 .story-toolbar{flex-wrap:wrap}.story-toolbar p{flex:1;min-width:130px}
+
+#video-visual-mode{margin-bottom:7px}.shot-narration{font-size:10px;color:var(--muted);margin:0 0 12px}.shot-narration summary{cursor:pointer}.shot-narration p{font-size:11px;line-height:1.7}
