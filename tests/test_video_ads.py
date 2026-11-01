@@ -16,7 +16,8 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base, get_db
 from app.models import Lead, LeadWebsite, AudioAd, VideoAd
 from app import video_ads
-from app.video_render import split_script, validate_slides, site_pages, embed_local_images
+from app.video_render import split_script, validate_slides, site_pages, embed_local_images, scene_timing, templates
+from app.video_direction import identity, scene_layout, direction
 
 
 def test_script_is_preserved_and_timing_fills_audio():
@@ -38,6 +39,36 @@ def test_slide_order_and_duration_are_validated():
     for invalid in ([], [{'page_index':9,'caption':'Test','duration':3}], [{'page_index':0,'caption':'Test','duration':float('nan')}], [{'page_index':0,'caption':'','duration':3}]):
         with pytest.raises(ValueError):
             validate_slides(invalid, 2, 16)
+
+
+def test_original_scene_direction_follows_site_identity():
+    warm=identity({'theme':'warm','design':'restaurant'})
+    luxury=identity({'theme':'luxury','design':'professional'})
+    assert warm['bg']!=luxury['bg'] and warm['serif'] is True
+    assert identity({'theme':'bold','design':'fitness'})['uppercase'] is True
+    assert identity({'accent_color':'red;display:none'})['accent']=='#70f0ff'
+    layouts=[scene_layout(i,6) for i in range(6)]
+    assert layouts[0]=='intro' and layouts[-1]=='cta'
+    assert len(set(layouts))>=4 and 'website' not in layouts
+    art=direction({'theme':'warm'},[{'title':'La cuisine'}],{'caption':'Découvrez notre cuisine de saison.','page_index':0},0,3)
+    assert art['layout']=='intro' and art['page_title']=='La cuisine'
+    for layout in ('intro','spotlight','editorial','statement','cta','website'):
+        art['layout']=layout
+        html=templates.get_template('video_slide.html').render(art=art,lead={'name':'Entreprise','city':'Paris','phone':''},index=1,count=3,portrait=True,headline_size=100,body_size=30,website_image='',width=1080,height=1920)
+        assert 'scene-bg' in html and 'scene-copy' in html and 'scene-chrome' in html
+
+
+def test_transition_overlaps_preserve_the_audio_timeline():
+    slides=[{'duration':3.1},{'duration':4.2},{'duration':2.7}]
+    frames,overlap=scene_timing(slides,10)
+    assert overlap>0
+    encoded_frames=sum(frames)+overlap*(len(slides)-1)
+    assert encoded_frames-overlap*(len(slides)-1)==300
+    assert scene_timing([{'duration':3}],3)==([90],0)
+    edited=validate_slides([{'page_index':0,'caption':'Notre site','duration':3,'layout':'website'}],1,3)
+    assert edited[0]['layout']=='website'
+    with pytest.raises(ValueError):
+        validate_slides([{'page_index':0,'caption':'Test','duration':3,'layout':'invalid'}],1,3)
 
 
 def test_legacy_sites_and_remote_images():

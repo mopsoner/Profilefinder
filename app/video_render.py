@@ -9,6 +9,7 @@ import subprocess
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .config import settings
+from .video_direction import direction, scene_layout, LAYOUTS
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA = (ROOT / settings().ads_media_root).resolve()
@@ -47,7 +48,7 @@ def split_script(script, pages, duration):
     if len(sentences) >= count:
         groups = [' '.join(sentences[round(i * len(sentences) / count):round((i+1) * len(sentences) / count)]).split() for i in range(count)]
     weights = [max(1, len(group)) for group in groups]
-    return [{'page_index': i % len(pages), 'caption': ' '.join(group),
+    return [{'page_index': i % len(pages), 'caption': ' '.join(group), 'layout':scene_layout(i,len(groups)),
              'duration': duration * weights[i] / sum(weights)} for i, group in enumerate(groups)]
 
 
@@ -57,7 +58,7 @@ def validate_slides(slides, page_count, duration):
     if len(slides) * .5 > duration:
         raise ValueError('L’audio est trop court pour autant de slides (0,5 seconde minimum par slide).')
     result = []
-    for slide in slides:
+    for index, slide in enumerate(slides):
         if not isinstance(slide, dict):
             raise ValueError('Slide invalide.')
         index, caption, seconds = slide.get('page_index'), slide.get('caption'), slide.get('duration')
@@ -67,7 +68,10 @@ def validate_slides(slides, page_count, duration):
             raise ValueError('Chaque slide doit contenir entre 1 et 700 caractères.')
         if type(seconds) not in (int, float) or not math.isfinite(seconds) or not .5 <= seconds <= 300:
             raise ValueError('Durée de slide invalide (0,5 à 300 secondes).')
-        result.append({'page_index': index, 'caption': caption.strip(), 'duration': seconds})
+        layout=slide.get('layout') or scene_layout(len(result),len(slides))
+        if not isinstance(layout,str) or layout not in LAYOUTS:
+            raise ValueError('Style de scène invalide.')
+        result.append({'page_index': index, 'caption': caption.strip(), 'duration': seconds, 'layout':layout})
     # Scale proportionally, clamping short slides without changing already normalized timings.
     pending = list(range(len(result)))
     remaining = duration
@@ -121,34 +125,108 @@ def capture_pages(directory, site, lead, progress, format_name='landscape'):
     return pages
 
 
-def compose_slides(directory, slides, lead, format_name):
+def compose_slides(directory, slides, lead, format_name, site=None, progress=lambda _:None):
     from playwright.sync_api import sync_playwright
     width, height = FORMATS[format_name]
+    site=site or {}
+    pages=site_pages(site,lead['name'])
+    while len(pages)<=max(s['page_index'] for s in slides):
+        pages.append({'title':'Notre univers','sections':[]})
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=shutil.which('chromium') or shutil.which('chromium-browser'), args=['--no-sandbox', '--disable-dev-shm-usage'])
         try:
-            page = browser.new_page(viewport={'width': width, 'height': height}, java_script_enabled=False)
+            page = browser.new_page(viewport={'width':width,'height':height}, java_script_enabled=False)
             page.route('**/*', lambda route: route.abort())
             for index, slide in enumerate(slides):
-                image = base64.b64encode((directory / f'page-{slide["page_index"]}.png').read_bytes()).decode()
-                font_size = max(28, round((64 if height > width else 58) * min(1, math.sqrt(160 / max(160, len(slide['caption']))))))
-                html = templates.get_template('video_slide.html').render(image=image, lead=lead, caption=slide['caption'], index=index+1, count=len(slides), portrait=height>width, font_size=font_size)
-                page.set_content(html, wait_until='load')
-                page.screenshot(path=str(directory / f'slide-{index}.png'), animations='disabled')
+                art=direction(site,pages,slide,index,len(slides))
+                image=base64.b64encode((directory/f'page-{slide["page_index"]}.png').read_bytes()).decode() if art['layout']=='website' else ''
+                headline_size=max(52,round((122 if height>width else 98)*min(1,math.sqrt(75/max(75,len(art['headline']))))))
+                body_size=max(24 if height>width else 19,round((40 if height>width else 31)*min(1,math.sqrt(200/max(200,len(art['support']))))))
+                html=templates.get_template('video_slide.html').render(art=art,lead=lead,index=index+1,count=len(slides),portrait=height>width,headline_size=headline_size,body_size=body_size,website_image=image,width=width,height=height)
+                page.set_content(html,wait_until='load')
+                for attempt in range(12):
+                    fits=page.evaluate('''() => {
+                        const content=document.querySelector('.copy-content').getBoundingClientRect();
+                        const top=document.querySelector('header').getBoundingClientRect().bottom+28;
+                        const bottom=document.querySelector('footer').getBoundingClientRect().top-28;
+                        return content.top>=top && content.bottom<=bottom;
+                    }''')
+                    if fits:
+                        break
+                    page.evaluate('''() => {
+                        for(const selector of ['h1','.support']){
+                            const el=document.querySelector(selector);
+                            if(el)el.style.fontSize=(parseFloat(getComputedStyle(el).fontSize)*0.9)+'px';
+                        }
+                    }''')
+                if not fits:
+                    raise ValueError('Le texte de cette scène est trop long pour le format choisi. Raccourcissez-le avant le rendu.')
+                page.screenshot(path=str(directory/f'slide-{index}.png'),animations='disabled',omit_background=True)
+                # Export independent layers: camera movement never moves or blurs the typography.
+                for layer,filename in (('scene-bg','background'),('scene-copy','copy'),('scene-chrome','chrome')):
+                    for name in ('scene-bg','scene-copy','scene-chrome'):
+                        page.locator('.'+name).evaluate('(el, visible) => el.style.visibility=visible?"visible":"hidden"',name==layer)
+                    page.screenshot(path=str(directory/f'{filename}-{index}.png'),omit_background=True,animations='disabled')
+                progress(round((index+1)/len(slides)*100))
         finally:
             browser.close()
 
 
-def encode_video(directory, audio_path, slides, duration, progress):
-    for index, slide in enumerate(slides):
-        # Round upward so that the joined video always covers the complete audio.
-        seconds = math.ceil(slide['duration'] * 30) / 30
-        fade = min(.22, seconds / 4)
-        subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-loop', '1', '-framerate', '30', '-i', str(directory / f'slide-{index}.png'), '-t', str(seconds), '-vf', f'fade=t=in:d={fade},fade=t=out:st={seconds-fade}:d={fade},format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-an', str(directory / f'clip-{index}.mp4')], capture_output=True, timeout=600, check=True)
-        progress(round((index+1)/len(slides)*90))
-    (directory / 'concat.txt').write_text(''.join(f"file 'clip-{i}.mp4'\n" for i in range(len(slides))))
-    output = directory / 'output.tmp.mp4'
-    subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '1', '-i', str(directory / 'concat.txt'), '-i', str(audio_path), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-movflags', '+faststart', str(output)], capture_output=True, timeout=120, check=True)
-    output.replace(directory / 'spot.mp4')
+def scene_timing(slides,duration,fps=30):
+    boundaries=[0]
+    for index in range(len(slides)):
+        cumulative=sum(s['duration'] for s in slides[:index+1])
+        boundaries.append(math.ceil(duration*fps) if index==len(slides)-1 else round(cumulative*fps))
+    frames=[boundaries[i+1]-boundaries[i] for i in range(len(slides))]
+    overlap=min(12,min(frames)//3) if len(slides)>1 else 0
+    return frames,overlap
+
+
+def encode_video(directory,audio_path,slides,duration,progress):
+    fps=30
+    frames,overlap=scene_timing(slides,duration,fps)
+    width,height=None,None
+    for index,slide in enumerate(slides):
+        total_frames=frames[index]+(overlap if index<len(slides)-1 else 0)
+        seconds=total_frames/fps
+        # Frame dimensions come from the actual composed scene (all formats supported).
+        if width is None:
+            probe=subprocess.run(['ffprobe','-v','error','-show_entries','stream=width,height','-of','json',str(directory/f'background-{index}.png')],capture_output=True,check=True,timeout=15)
+            stream=json.loads(probe.stdout)['streams'][0];width,height=stream['width'],stream['height']
+        zoom=f"1.025+0.055*on/{max(1,total_frames-1)}" if index%2==0 else f"1.08-0.055*on/{max(1,total_frames-1)}"
+        pan=f"(iw-iw/zoom)*on/{max(1,total_frames-1)}" if index%2==0 else f"(iw-iw/zoom)*(1-on/{max(1,total_frames-1)})"
+        entrance=min(.55,seconds/3)
+        filters=(f"[0:v]scale={width*2}:{height*2},zoompan=z='{zoom}':x='{pan}':y='(ih-ih/zoom)/2':d=1:s={width}x{height}:fps={fps},format=yuv420p[bg];"
+                 f"[1:v]format=rgba,fade=t=in:st=0:d={entrance}:alpha=1[copy];"
+                 f"[bg][copy]overlay=x=0:y='max(0,48*(1-t/{entrance}))':eval=frame:shortest=1[motion];"
+                 f"[motion][2:v]overlay=0:0:shortest=1,format=yuv420p[out]")
+        cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-filter_complex_threads','1']
+        for name in ('background','copy','chrome'):
+            cmd+=['-loop','1','-framerate',str(fps),'-i',str(directory/f'{name}-{index}.png')]
+        cmd+=['-filter_complex',filters,'-map','[out]','-frames:v',str(total_frames),'-c:v','libx264','-preset','veryfast','-crf','20','-threads','2','-an',str(directory/f'clip-{index}.mp4')]
+        subprocess.run(cmd,capture_output=True,timeout=600,check=True)
+        progress(round((index+1)/len(slides)*75))
+    assemble_video(directory,audio_path,frames,overlap,duration)
+    progress(100)
     for clip in directory.glob('clip-*.mp4'):
         clip.unlink()
+
+
+def assemble_video(directory,audio_path,frames,overlap,duration):
+    fps=30
+    cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-filter_complex_threads','1']
+    for index in range(len(frames)):
+        cmd+=['-threads','1','-i',str(directory/f'clip-{index}.mp4')]
+    cmd+=['-i',str(audio_path)]
+    filters=';'.join(f'[{i}:v]setpts=PTS-STARTPTS,fps=30[v{i}]' for i in range(len(frames)))+';'
+    previous='v0';offset=0
+    for index in range(1,len(frames)):
+        offset+=frames[index-1]/fps
+        transition='fade' if index%2 else 'smoothleft'
+        filters+=f'[{previous}][v{index}]xfade=transition={transition}:duration={overlap/fps}:offset={offset},fps=30[x{index}];'
+        previous=f'x{index}'
+    filters+=f'[{previous}]fade=t=in:d=0.15,fade=t=out:st={max(0,duration-.2)}:d=0.2,format=yuv420p[out]'
+    output=directory/'output.tmp.mp4'
+    cmd+=['-filter_complex',filters,'-map','[out]','-map',f'{len(frames)}:a:0','-c:v','libx264','-preset','veryfast','-crf','20','-threads','2','-c:a','aac','-b:a','192k','-t',str(duration),'-movflags','+faststart',str(output)]
+    subprocess.run(cmd,capture_output=True,timeout=900,check=True)
+    output.replace(directory/'spot.mp4')
