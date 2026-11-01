@@ -72,6 +72,17 @@ def validate_slides(slides, page_count, duration):
         if not isinstance(layout,str) or layout not in LAYOUTS:
             raise ValueError('Style de scène invalide.')
         result.append({'page_index': index, 'caption': caption.strip(), 'duration': seconds, 'layout':layout})
+        if 'on_screen_text' in slide:
+            text=slide['on_screen_text']
+            if not isinstance(text,str) or len(text)>100 or len(text.split())>7:
+                raise ValueError('Le texte à l’écran est limité à 7 mots et 100 caractères par plan.')
+            result[-1]['on_screen_text']=text
+        if 'text_position' in slide:
+            if slide['text_position'] not in ('left','center','right','none'):
+                raise ValueError('Placement du texte invalide.')
+            result[-1]['text_position']=slide['text_position']
+        if isinstance(slide.get('_shot_key'),str) and re.fullmatch(r'[a-f0-9]{64}',slide['_shot_key']):
+            result[-1]['_shot_key']=slide['_shot_key']
     # Scale proportionally, clamping short slides without changing already normalized timings.
     pending = list(range(len(result)))
     remaining = duration
@@ -139,15 +150,30 @@ def compose_slides(directory, slides, lead, format_name, site=None, progress=lam
             page.route('**/*', lambda route: route.abort())
             for index, slide in enumerate(slides):
                 art=direction(site,pages,slide,index,len(slides))
+                cinematic=site.get('_video_visual_mode')=='cinematic'
+                if cinematic:
+                    if art['layout']=='website':
+                        visual=directory/f'page-{slide["page_index"]}.png'
+                    else:
+                        visual=directory/f'ai-shot-{slide.get("visual_index",0)}.png'
+                    if not visual.is_file():
+                        raise ValueError('Le visuel de ce plan est indisponible. Préparez à nouveau les plans vidéo.')
+                    art['image']='data:image/png;base64,'+base64.b64encode(visual.read_bytes()).decode()
+                    art['headline']=slide.get('on_screen_text','')
+                    art['support']=''
+                    art['text_position']=slide.get('text_position','left')
                 image=base64.b64encode((directory/f'page-{slide["page_index"]}.png').read_bytes()).decode() if art['layout']=='website' else ''
                 headline_size=max(52,round((122 if height>width else 98)*min(1,math.sqrt(75/max(75,len(art['headline']))))))
                 body_size=max(24 if height>width else 19,round((40 if height>width else 31)*min(1,math.sqrt(200/max(200,len(art['support']))))))
                 if (site.get('_video_direction') or {}).get('text_size')=='large':
                     headline_size=round(headline_size*1.15)
                     body_size=round(body_size*1.12)
-                html=templates.get_template('video_slide.html').render(art=art,lead=lead,index=index+1,count=len(slides),portrait=height>width,headline_size=headline_size,body_size=body_size,website_image=image,width=width,height=height)
+                html=templates.get_template('video_shot.html' if cinematic else 'video_slide.html').render(art=art,lead=lead,index=index+1,count=len(slides),portrait=height>width,headline_size=headline_size,body_size=body_size,website_image=image,width=width,height=height)
                 page.set_content(html,wait_until='load')
                 for attempt in range(12):
+                    if cinematic and (art['text_position']=='none' or not art['headline']):
+                        fits=True
+                        break
                     fits=page.evaluate('''() => {
                         const content=document.querySelector('.copy-content').getBoundingClientRect();
                         const top=document.querySelector('header').getBoundingClientRect().bottom+28;
@@ -168,7 +194,8 @@ def compose_slides(directory, slides, lead, format_name, site=None, progress=lam
                 # Export independent layers: camera movement never moves or blurs the typography.
                 for layer,filename in (('scene-bg','background'),('scene-copy','copy'),('scene-chrome','chrome')):
                     for name in ('scene-bg','scene-copy','scene-chrome'):
-                        page.locator('.'+name).evaluate('(el, visible) => el.style.visibility=visible?"visible":"hidden"',name==layer)
+                        visible=name==layer and not (cinematic and name=='scene-copy' and (art['text_position']=='none' or not art['headline']))
+                        page.locator('.'+name).evaluate('(el, visible) => el.style.visibility=visible?"visible":"hidden"',visible)
                     page.screenshot(path=str(directory/f'{filename}-{index}.png'),omit_background=True,animations='disabled')
                 progress(round((index+1)/len(slides)*100))
         finally:

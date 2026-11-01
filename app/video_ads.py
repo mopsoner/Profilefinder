@@ -23,6 +23,8 @@ import httpx
 from .ad_copy import TONES, lead_facts, generate_copy, CopyUnavailable
 from .video_direction import LAYOUT_NAMES, scene_layout
 from .creative_brief import clean_brief, video_direction_from_brief
+from .video_visuals import can_generate_visuals, ensure_shots
+from .config import settings
 
 router = APIRouter()
 logger = logging.getLogger('profilefinder.video_ads')
@@ -188,7 +190,8 @@ def lead_context(lead_id: int, db: Session = Depends(get_db)):
     return {'lead': {'id': lead.id, 'name': lead.name}, 'has_site': site_data is not None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page'} for p in site_pages(site_data, lead.name)] if site_data else [],
             'audios': [audio_payload(row) for row in audios], 'projects': [project_payload(row) for row in projects],
-            'ready': video_tools_ready(), 'missing_tools': video_dependencies()['missing']}
+            'ready': video_tools_ready(), 'missing_tools': video_dependencies()['missing'],
+            'ai_visuals_available':can_generate_visuals(),'max_ai_images':max(1,min(8,settings().video_ai_max_images))}
 
 
 def project_payload(row):
@@ -202,6 +205,7 @@ def project_payload(row):
     return {'id': row.id, 'lead_id': row.lead_id, 'audio_id': row.audio_id, 'format': row.format, 'status': row.status,
             'progress': row.progress, 'error': row.error, 'slides': slides, 'layouts':LAYOUT_NAMES,
             'client_instructions':site.get('_video_client_instructions',''), 'creative_direction':site.get('_video_direction',{}),
+            'visual_mode':site.get('_video_visual_mode','graphic'),
             'created_at': row.created_at.isoformat(), 'video_url': f'/api/video-ads/{row.id}/video' if row.status == 'completed' else None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page', 'url': f'/api/video-ads/{row.id}/pages/{i}'} for i, p in enumerate(site_pages(json.loads(row.site_json), 'Site'))]}
 
@@ -242,9 +246,13 @@ def run_job(identifier, mode):
                 site.pop('_video_direction',None)
             site['_video_brief_applied']=brief
             update(identifier,site_json=json.dumps(site),slides_json=json.dumps(slides))
+        cinematic=site.get('_video_visual_mode')=='cinematic'
+        if cinematic:
+            slides=ensure_shots(directory,site,slides,lead_data,format_name,lambda n:update(identifier,progress=round(n*.5)))
+            update(identifier,slides_json=json.dumps(slides))
         if mode == 'prepare':
-            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=round(n*.45)), format_name)
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=45+round(n*.55)))
+            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=(50 if cinematic else 0)+round(n*(.2 if cinematic else .45))), format_name)
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(70 if cinematic else 45)+round(n*(.3 if cinematic else .55))))
             update(identifier, status='ready', progress=100)
         elif mode=='preview':
             compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=n))
@@ -255,7 +263,7 @@ def run_job(identifier, mode):
             update(identifier, status='completed', progress=100)
     except Exception as error:
         logger.exception('Video Ads job failed: %s', identifier)
-        message = str(error) if isinstance(error, ValueError) else 'OpenAI n’a pas pu interpréter les instructions du client. Vérifiez la connexion, la clé et les crédits, puis réessayez.' if isinstance(error,httpx.HTTPError) else 'Le rendu a échoué. Vérifiez Chromium/Playwright, FFmpeg et les médias locaux, puis réessayez.'
+        message = str(error) if isinstance(error, ValueError) else 'OpenAI n’a pas pu préparer la direction visuelle ou les images. Vérifiez la connexion, la clé, l’accès au modèle et les crédits, puis réessayez.' if isinstance(error,httpx.HTTPError) else 'Le rendu a échoué. Vérifiez Chromium/Playwright, FFmpeg et les médias locaux, puis réessayez.'
         update(identifier, status='failed', error=message)
     finally:
         slot.release()
@@ -268,6 +276,11 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
         brief=clean_brief(data.get('client_instructions',''))
     except ValueError as error:
         raise HTTPException(400,str(error))
+    visual_mode=data.get('visual_mode','graphic')
+    if visual_mode not in ('cinematic','graphic'):
+        raise HTTPException(400,'Choisissez un mode visuel valide.')
+    if visual_mode=='cinematic' and not can_generate_visuals():
+        raise HTTPException(503,'Les plans vidéo IA nécessitent la clé OpenAI. Vous pouvez utiliser le mode Compositions graphiques.')
     if not await run_in_threadpool(video_tools_ready):
         missing = (await run_in_threadpool(video_dependencies))['missing']
         raise HTTPException(503, 'Outils vidéo manquants sur le serveur : '+', '.join(missing)+'. Exécutez scripts/install.sh puis redémarrez ProfileFinder.')
@@ -291,6 +304,7 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(400, 'Le contenu du site est invalide. Régénérez-le dans Sites IA.')
     pages = site_pages(site, lead.name)
     site['_video_client_instructions']=brief
+    site['_video_visual_mode']=visual_mode
     slides = split_script(audio.script, pages, audio.duration)
     if not slot.acquire(blocking=False):
         raise HTTPException(409, 'Un rendu est déjà en cours. Réessayez après sa fin.')
@@ -325,6 +339,10 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
     if not audio:
         raise HTTPException(400, 'Audio supprimé.')
     site=json.loads(row.site_json)
+    visual_mode=data.get('visual_mode',site.get('_video_visual_mode','graphic'))
+    if visual_mode not in ('cinematic','graphic'):
+        raise HTTPException(400,'Choisissez un mode visuel valide.')
+    site['_video_visual_mode']=visual_mode
     try:
         brief=clean_brief(data.get('client_instructions',site.get('_video_client_instructions','')))
     except ValueError as error:

@@ -60,3 +60,11 @@ PYTHONPATH=. .venv/bin/pytest tests/test_voice.py tests/test_video_ads.py -q
 ```
 
 Le parcours complet est aussi vérifié avec un audio synthétique et un site local : sauvegarde audio, préparation des scènes originales, actualisation des aperçus, édition et rendu MP4, téléchargement et contrôle des dimensions, de la cadence et des codecs avec ffprobe. Aucun appel IA payant n’est nécessaire pour ce test.
+
+### Plans vidéo plein écran
+
+Le nouveau mode « Plans vidéo · visuels IA » génère une direction de plans puis des images illustratives OpenAI inspirées du métier, du thème du site et des instructions client. Il utilise le modèle texte et `OPENAI_IMAGE_MODEL` configurés. Les images occupent tout l'écran, sans cadre de présentation ni compteur. Le texte à l'écran est distinct de la narration : sept mots maximum, modifiable et masquable. Les images sont animées par les mouvements de caméra et les transitions du moteur MP4 existant ; ce ne sont pas des séquences filmées générées.
+
+La création consomme des crédits OpenAI. `VIDEO_AI_MAX_IMAGES=4` limite les images originales par projet (entre 1 et 8) ; les plans supplémentaires les réutilisent avec différents cadrages. Les visuels sont conservés localement et réutilisés lors des changements de texte, d'ordre ou du rendu MP4. Un changement de brief ou de narration peut générer de nouvelles images. Les visuels illustrent l'activité sans prétendre montrer les véritables locaux ou clients.
+
+Le mode « Compositions graphiques » reste disponible et les projets existants le conservent. Les tests automatisés simulent OpenAI ; la composition Chromium et l'encodage FFmpeg peuvent être vérifiés localement sans consommer de crédits.
