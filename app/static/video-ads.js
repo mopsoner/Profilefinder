@@ -31,6 +31,8 @@
     $('prepare-video').textContent=busy?'Préparation ou rendu en cours…':'✦ Préparer mon slideshow ↗';
     preparationMessage(busy?'Le traitement est en cours. Son avancement apparaît dans le storyboard.':prerequisite()||'Tout est prêt : votre audio et les pages du site seront réunis dans le storyboard.');
   }
+  const scopedStudio=/^\/leads\/\d+\/video-ads$/.test(location.pathname);
+  const studioPath=scopedStudio?location.pathname:'/video-ads';
   const selectedAudio=()=>state.context?.audios.find(a=>a.id===$('video-audio').value);
   function updateAudio() {
     const audio=selectedAudio();
@@ -64,7 +66,7 @@
       if(!context.ready)notice(prerequisite());
     }catch(error){if(epoch===state.epoch){state.loadingContext=false;updatePreparation();preparationMessage(error.message,true);notice(error.message);}}
   }
-  function updateURL() {const query=new URLSearchParams({lead_id:$('video-lead').value});if(state.project)query.set('project_id',state.project.id);history.replaceState(null,'','/video-ads?'+query);}
+  function updateURL() {const query=new URLSearchParams({lead_id:$('video-lead').value});if(state.project)query.set('project_id',state.project.id);history.replaceState(null,'',studioPath+'?'+query);}
   function timing() {const slides=state.project?.slides||[];const audio=state.context?.audios.find(a=>a.id===state.project?.audio_id);$('timing-summary').textContent=`${slides.length} slide(s) · audio ${audio?audio.duration.toFixed(1):'—'} s`;}
   function dirty() {$('video-result').hidden=true;$('project-badge').textContent='À GÉNÉRER';}
   function drawSlides() {
@@ -90,7 +92,7 @@
   }
   async function poll(id,epoch){try{const project=await api('/api/video-ads/'+id);if(epoch===state.epoch&&state.project?.id===id)showProject(project);}catch(error){if(epoch===state.epoch){notice(error.message+' · nouvelle tentative dans 5 secondes');state.timer=setTimeout(()=>poll(id,epoch),5000);}}}
   async function loadProject(id){try{const epoch=state.epoch;const project=await api('/api/video-ads/'+id);if(epoch!==state.epoch)return;if(project.lead_id!==Number($('video-lead').value))throw new Error('Ce projet appartient à un autre lead.');$('video-audio').value=project.audio_id;updateAudio();showProject(project);}catch(error){notice(error.message);}}
-  $('video-lead').onchange=async()=>{history.replaceState(null,'','/video-ads'+($('video-lead').value?'?lead_id='+$('video-lead').value:''));await loadContext();};
+  $('video-lead').onchange=async()=>{if(scopedStudio){location.href=$('video-lead').value?'/leads/'+$('video-lead').value+'/video-ads':'/video-ads';return;}history.replaceState(null,'','/video-ads'+($('video-lead').value?'?lead_id='+$('video-lead').value:''));await loadContext();};
   $('video-audio').onchange=()=>{updateAudio();if(state.project&&$('video-audio').value!==state.project.audio_id)notice('Pour utiliser ce nouvel audio, préparez un nouveau slideshow.');};
   document.querySelectorAll('[data-format]').forEach(button=>button.onclick=()=>{state.format=button.dataset.format;document.querySelectorAll('[data-format]').forEach(b=>{const selected=b===button;b.classList.toggle('chosen',selected);b.setAttribute('aria-pressed',String(selected));});});
   $('prepare-video').onclick=async()=>{
@@ -115,5 +117,12 @@
   $('restore-audio-message').onclick=()=>loadAudioMessage();
   $('use-video-message').onclick=()=>{const lead=$('video-lead').value,text=$('video-copy-text').value.trim();if(!lead||!text)return;try{sessionStorage.setItem('ads-message-'+lead,text);location.href='/ads?lead_id='+lead+'&message_draft=1';}catch{notice('Le stockage du navigateur est indisponible. Copiez le texte dans Ads pour créer sa voix off.');}};
   updatePreparation();
-  const params=new URLSearchParams(location.search);if(params.get('lead_id')&&Array.from($('video-lead').options).some(o=>o.value===params.get('lead_id'))){$('video-lead').value=params.get('lead_id');loadContext(params.get('audio_id')).then(()=>{if(params.get('project_id'))loadProject(params.get('project_id'));});}
+  const params=new URLSearchParams(location.search), initialLead=params.get('lead_id')||$('video-lead').dataset.selectedLead;
+  if(initialLead&&Array.from($('video-lead').options).some(o=>o.value===initialLead)){
+    $('video-lead').value=initialLead;
+    loadContext(params.get('audio_id')).then(()=>{
+      if(params.get('project_id'))loadProject(params.get('project_id'));
+      else if(scopedStudio&&!params.has('audio_id')&&!params.has('new')&&state.context?.projects.length)loadProject(state.context.projects[0].id);
+    });
+  }
 })();

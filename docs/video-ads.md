@@ -15,6 +15,12 @@ Le champ **Message** reprend automatiquement le texte de l’audio sélectionné
 
 Le texte est découpé localement, sans requête IA supplémentaire. Les durées sont réparties sur la durée réelle de l’audio ; la synchronisation est indicative et ne constitue pas un alignement mot à mot. Les modifications du storyboard sont enregistrées au lancement du rendu. Les captures correspondent au site enregistré au moment de la préparation, même si le site est ensuite modifié.
 
+## Retrouver les créations d’un prospect
+
+La fiche `/leads/{id}` contient la rubrique **Sites, audios & Video Ads** : site enregistré, audios avec leur message et lecteur, et projets vidéo avec état, lecture et téléchargement des rendus terminés. **Ouvrir ce projet** restaure le storyboard exact ; **Ouvrir cet audio** recharge sa voix et son texte dans Ads ; **Créer sa vidéo** ouvre un nouveau slideshow à partir de cet audio.
+
+Le studio dédié `/leads/{id}/video-ads` conserve le prospect dans l’URL, l’affiche dans l’en-tête et permet de revenir à sa fiche. Sans paramètre supplémentaire, il reprend le dernier projet du prospect ; `?new=1` ouvre un nouveau projet et `?audio_id=...` sélectionne l’audio source. Les liens de navigation vers les studios conservent ce contexte.
+
 ## Installation et exécution
 
 Exécuter `bash scripts/install.sh` puis `bash scripts/start.sh` depuis la racine du dépôt. Le script installe Python, FFmpeg, les dépendances Python dont Playwright, et un Chromium Playwright si aucun Chromium système n’est disponible. Sur un environnement déjà préparé :

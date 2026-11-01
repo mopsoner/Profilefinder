@@ -88,6 +88,17 @@ def test_audio_must_belong_to_selected_lead(client):
     assert http.post('/api/video-ads/prepare',json={'lead_id':1,'audio_id':'a'*32,'format':[]}).status_code == 400
 
 
+def test_scoped_video_studio_preserves_prospect_context(client):
+    http, _ = client
+    response=http.get('/leads/1/video-ads')
+    assert response.status_code==200
+    assert 'data-selected-lead="1"' in response.text
+    assert 'Les publicités vidéo de <strong>Entreprise A</strong>' in response.text
+    assert '<option value="2"' not in response.text
+    assert '/leads/1#creations' in response.text
+    assert http.get('/leads/999/video-ads').status_code==404
+
+
 def test_audio_requires_script_and_a_real_lead(client):
     http, _ = client
     assert http.post('/api/ads/audio',json={'lead_id':999,'script':'Bonjour','audio':'bad'}).status_code == 404

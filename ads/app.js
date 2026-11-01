@@ -69,12 +69,21 @@ $('save-video-audio').addEventListener('click',()=>busy('save-video-audio',async
  if(!state.exportScript?.trim())throw new Error('Renseignez le texte exact de la voix off, puis recréez le mix.');
  const audio=state.exportAudioId?{id:state.exportAudioId,lead_id:Number(state.exportLeadId)}:await saveAssociatedAudio(state.mixBlob,state.exportScript,state.exportLeadId);
  state.exportAudioId=audio.id;
- location.href='/video-ads?lead_id='+audio.lead_id+'&audio_id='+audio.id;
+ location.href='/leads/'+audio.lead_id+'/video-ads?audio_id='+audio.id;
 }));
 fetch('/api/ads/leads').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(leads=>{
  leads.forEach(lead=>$('ads-lead').add(new Option(lead.name+(lead.city?' · '+lead.city:''),String(lead.id))));
- function applyLead(){const lead=leads.find(l=>String(l.id)===$('ads-lead').value);invalidateMix();state.voiceScript=null;if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voiceURL=null;state.voice=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;$('voice-filename').textContent='Importer une voix off';$('ad-text').value='';countWords();if(lead){$('company').value=lead.name;$('activity').value=lead.activity.replaceAll('_',' ');$('city').value=lead.city;$('details').value='';$('ads-lead-status').textContent='Audio et script pourront être sauvegardés pour ce lead.';}else $('ads-lead-status').textContent='Choisissez un lead pour réutiliser votre audio dans Video Ads.';}
+ function applyLead(){const lead=leads.find(l=>String(l.id)===$('ads-lead').value);$('ads-lead-back').hidden=!lead;if(lead)$('ads-lead-back').href='/leads/'+lead.id+'#creations';invalidateMix();state.voiceScript=null;if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voiceURL=null;state.voice=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;$('voice-filename').textContent='Importer une voix off';$('ad-text').value='';countWords();if(lead){$('company').value=lead.name;$('activity').value=lead.activity.replaceAll('_',' ');$('city').value=lead.city;$('details').value='';$('ads-lead-status').textContent='Audio et script pourront être sauvegardés pour ce lead.';}else $('ads-lead-status').textContent='Choisissez un lead pour réutiliser votre audio dans Video Ads.';}
  $('ads-lead').addEventListener('change',applyLead);
  const leadId=new URLSearchParams(location.search).get('lead_id');if(leads.some(l=>String(l.id)===leadId)){$('ads-lead').value=leadId;applyLead();if(new URLSearchParams(location.search).get('message_draft')==='1'){try{const draft=sessionStorage.getItem('ads-message-'+leadId);if(draft){$('ad-text').value=draft;countWords();toast('Message importé de Video Ads. Générez la voix off pour ce nouveau texte.');}}catch{}}}
+ const audioId=new URLSearchParams(location.search).get('audio_id');
+ if(audioId&&$('ads-lead').value===leadId&&new URLSearchParams(location.search).get('message_draft')!=='1'){
+   fetch('/api/video-ads/leads/'+leadId).then(r=>{if(!r.ok)throw new Error('Prospect indisponible.');return r.json();}).then(async context=>{
+     const audio=context.audios.find(a=>a.id===audioId);if(!audio)throw new Error('Cet audio n’appartient pas à ce prospect ou n’est plus disponible.');
+     const response=await fetch(audio.url);if(!response.ok)throw new Error('Fichier audio indisponible.');const blob=await response.blob();
+     if($('ads-lead').value!==leadId)return;
+     setVoice(blob,'Audio enregistré · '+new Date(audio.created_at+'Z').toLocaleString('fr-FR'));state.voiceScript=audio.script;$('ad-text').value=audio.script;countWords();toast('Audio et message du prospect chargés.');
+   }).catch(error=>toast(error.message));
+ }
  if(!leads.length)$('ads-lead-status').textContent='Ajoutez un prospect pour créer une annonce liée à son profil.';
 }).catch(()=>{$('ads-lead-status').textContent='Liste des leads indisponible dans ce serveur. Utilisez l’application complète.';});
