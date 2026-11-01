@@ -84,6 +84,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0]
+        if path in ('/favicon.ico', '/static/favicon.svg'):
+            self.send(200, (ROOT.parent / 'app/static/favicon.svg').read_bytes(), 'image/svg+xml')
+            return
         if path == '/api/status':
             from app.voice import voice_status
             self.send(200, voice_status())

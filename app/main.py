@@ -49,6 +49,10 @@ enrich_lock=threading.Lock()
 
 app=FastAPI(title="ProfileFinder",version="1.0.0")
 
+@app.get('/favicon.ico', include_in_schema=False)
+def favicon():
+    return RedirectResponse('/static/favicon.svg')
+
 @app.on_event("startup")
 def startup_initialize_reference_data():
     # Do not block the web server while Google resolves missing communes.
