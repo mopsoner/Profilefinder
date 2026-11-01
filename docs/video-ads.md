@@ -4,12 +4,14 @@ Page `/video-ads`, accessible depuis la navigation commune. Le format par défau
 
 ## Parcours
 
-1. Dans Ads, choisir un lead, préparer le script, générer ou importer la voix, puis créer le mix. Cliquer sur **Enregistrer et créer une Video Ad** : l’audio final et son texte sont conservés pour ce lead. Les fichiers téléchargés avant cette fonctionnalité peuvent être importés dans Video Ads avec leur texte de voix off.
+1. Dans Ads, choisir un lead et préparer le script. Une voix générée est automatiquement enregistrée avec le texte exact envoyé au moteur vocal. Le mix final est lui aussi sauvegardé automatiquement avec ce message. Cliquer sur **Ouvrir cet audio et son message dans Video Ads** pour le retrouver dans le studio vidéo. Si une sauvegarde échoue, le bouton permet de la réessayer. Les fichiers téléchargés avant cette fonctionnalité peuvent être importés dans Video Ads avec leur texte de voix off.
 2. Dans Sites IA, générer le site du même lead si nécessaire.
 3. L’étape **Préparer mon message** peut générer un nouveau texte via OpenAI en utilisant le profil, les avis, les analyses et le site enregistrés. Le texte reste modifiable et peut être transféré dans Ads pour créer une nouvelle voix off. Cette génération utilise la clé et le modèle OpenAI existants et consomme les crédits du compte. Elle ne remplace jamais le texte associé à un audio existant.
 4. Dans Video Ads, sélectionner le lead, un audio sauvegardé et le format. **Préparer mon slideshow** capture les pages du site enregistré en HD et répartit le script en slides.
 5. Modifier les textes, choisir la page associée à chaque slide, réordonner, ajouter ou supprimer des slides et ajuster leurs durées.
 6. **Générer ma vidéo MP4** produit une vidéo H.264 avec audio AAC, texte incrusté, captures des pages, coordonnées disponibles et fondus. Le fichier est lisible dans la page et téléchargeable.
+
+Le champ **Message** reprend automatiquement le texte de l’audio sélectionné, y compris après rechargement ou changement d’audio. Le storyboard utilise toujours ce texte sauvegardé. Un brouillon modifié ne remplace pas le texte d’un audio existant : générer une nouvelle voix crée une nouvelle version, et le bouton **Reprendre le message de l’audio** restaure la source.
 
 Le texte est découpé localement, sans requête IA supplémentaire. Les durées sont réparties sur la durée réelle de l’audio ; la synchronisation est indicative et ne constitue pas un alignement mot à mot. Les modifications du storyboard sont enregistrées au lancement du rendu. Les captures correspondent au site enregistré au moment de la préparation, même si le site est ensuite modifié.
 

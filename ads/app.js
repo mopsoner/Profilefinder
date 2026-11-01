@@ -1,11 +1,11 @@
 const $ = id => document.getElementById(id);
-const state = { voice: null, music: null, voiceURL: null, mixURL: null, mixBlob: null, exportScript: null, voiceScript: null, exportLeadId: null };
+const state = { voice: null, music: null, voiceURL: null, mixURL: null, mixBlob: null, exportScript: null, voiceScript: null, exportLeadId: null, exportAudioId: null };
 let toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 5500); }
 function bars(selector, count, scale) { const el = document.querySelector(selector); for(let i=0;i<count;i++){const bar=document.createElement('i');bar.style.height=`${(0.15+Math.abs(Math.sin(i*1.7)*Math.cos(i*.31))*.85)*scale}px`;el.append(bar);} }
 bars('.orb-bars', 19, 64); bars('.mix-wave', 65, 31);
 function countWords(){const count=$('ad-text').value.trim().split(/\s+/).filter(Boolean).length;$('word-count').textContent=`${count} mots · ≈ ${Math.round(count/2.5)} s`;}
-function invalidateMix(){if(state.mixURL) URL.revokeObjectURL(state.mixURL);state.mixURL=null;state.mixBlob=null;$('save-video-audio').hidden=true;$('mix-player').pause();$('mix-player').removeAttribute('src');$('mix-player').hidden=true;$('download').hidden=true;}
+function invalidateMix(){if(state.mixURL) URL.revokeObjectURL(state.mixURL);state.mixURL=null;state.mixBlob=null;state.exportAudioId=null;$('save-video-audio').textContent='▸ Enregistrer et créer une Video Ad';$('save-video-audio').hidden=true;$('mix-player').pause();$('mix-player').removeAttribute('src');$('mix-player').hidden=true;$('download').hidden=true;}
 function setVoice(blob, name){invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=blob;state.voiceURL=URL.createObjectURL(blob);$('voice-player').src=state.voiceURL;$('voice-player').hidden=false;$('voice-filename').textContent=name;}
 $('ad-text').addEventListener('input',countWords);
 $('generate-text').addEventListener('click',()=>busy('generate-text',async()=>{
@@ -22,15 +22,34 @@ $('duck').addEventListener('change',invalidateMix);
 async function request(url, data){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!response.ok){let error;try{error=await response.json();}catch{error={error:'Le serveur ne répond pas correctement.'};}throw new Error(error.error||'La requête a échoué.');}return response.blob();}
 async function busy(id, operation){const button=$(id),original=button.innerHTML;button.disabled=true;button.textContent='Traitement en cours…';try{await operation();}catch(error){toast(error.message);}finally{button.disabled=false;button.innerHTML=original;}}
 $('generate-voice').addEventListener('click',()=>busy('generate-voice',async()=>{
- const provider=$('voice-provider').value;
+ const provider=$('voice-provider').value,leadId=$('ads-lead').value;
  if(!$('ad-text').value.trim())throw new Error('Préparez votre texte publicitaire avant de générer la voix.');
  if(provider==='elevenlabs'&&!$('voice-id').value.trim())throw new Error('Renseignez un identifiant de voix ElevenLabs.');
  const voiceScript=$('ad-text').value;
  const blob=await request('/api/voice',{provider,text:voiceScript,voice:$('openai-voice').value,instructions:$('voice-instructions').value,voice_id:$('voice-id').value.trim()});
- setVoice(blob,provider==='openai'?'Voix OpenAI.mp3':'Voix ElevenLabs.mp3');state.voiceScript=voiceScript;toast('Voix off générée. Écoutez-la avant le mixage.');
+ if($('ads-lead').value===leadId){setVoice(blob,provider==='openai'?'Voix OpenAI.mp3':'Voix ElevenLabs.mp3');state.voiceScript=voiceScript;}
+ if(leadId){try{await saveAssociatedAudio(blob,voiceScript,leadId);toast('Voix off et message enregistrés pour ce prospect. Retrouvez-les dans Video Ads.');}catch(error){toast('Voix générée, mais non sauvegardée : '+error.message+' Enregistrez le mix pour réessayer.');}}
+ else toast('Voix off générée. Sélectionnez un prospect avant la génération pour conserver son audio et son message.');
 }));
 function base64(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('Impossible de lire le fichier audio.'));reader.readAsDataURL(blob);});}
-$('export').addEventListener('click',()=>busy('export',async()=>{if(!state.voice)throw new Error('Générez ou importez une voix off pour créer votre spot.');const voice=state.voice,music=state.music,script=state.voiceScript||$('ad-text').value,leadId=$('ads-lead').value;const data={voice:await base64(voice),music:music?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};const blob=await request('/api/mix',data);invalidateMix();state.mixBlob=blob;state.exportScript=script;state.exportLeadId=leadId;state.mixURL=URL.createObjectURL(blob);$('save-video-audio').hidden=false;$('mix-player').src=state.mixURL;$('mix-player').hidden=false;$('download').href=state.mixURL;$('download').download=($('company').value.trim().replace(/[^\p{L}\p{N}-]+/gu,'-')||'publicite')+'-ads.mp3';$('download').hidden=false;toast('Votre spot audio est prêt à être écouté et téléchargé.');}));
+async function saveAssociatedAudio(blob,script,leadId){
+ const response=await fetch('/api/ads/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:Number(leadId),script,audio:await base64(blob)})});
+ let audio;try{audio=await response.json();}catch{throw new Error('Réponse du serveur invalide.');}
+ if(!response.ok)throw new Error(typeof audio.detail==='string'?audio.detail:'Enregistrement impossible.');
+ return audio;
+}
+$('export').addEventListener('click',()=>busy('export',async()=>{
+ if(!state.voice)throw new Error('Générez ou importez une voix off pour créer votre spot.');
+ const voice=state.voice,music=state.music,script=state.voiceScript||$('ad-text').value,leadId=$('ads-lead').value;
+ const data={voice:await base64(voice),music:music?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};
+ const blob=await request('/api/mix',data);invalidateMix();state.mixBlob=blob;state.exportScript=script;state.exportLeadId=leadId;state.mixURL=URL.createObjectURL(blob);$('save-video-audio').hidden=false;$('mix-player').src=state.mixURL;$('mix-player').hidden=false;$('download').href=state.mixURL;$('download').download=($('company').value.trim().replace(/[^\p{L}\p{N}-]+/gu,'-')||'publicite')+'-ads.mp3';$('download').hidden=false;
+ if(leadId&&script.trim()){
+   $('save-video-audio').disabled=true;
+   try{const saved=await saveAssociatedAudio(blob,script,leadId);if(state.mixBlob===blob){state.exportAudioId=saved.id;$('save-video-audio').textContent='▸ Ouvrir cet audio et son message dans Video Ads';}toast('Spot audio et message enregistrés pour ce prospect.');}
+   catch(error){toast('Spot prêt, mais non sauvegardé : '+error.message+' Cliquez sur Enregistrer pour réessayer.');}
+   finally{$('save-video-audio').disabled=false;}
+ }else toast('Spot prêt. Pour le conserver dans Video Ads, choisissez un prospect et renseignez le texte exact de la voix off.');
+}));
 document.querySelectorAll('.step').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.step').forEach(el=>el.classList.remove('selected'));button.classList.add('selected');$(button.dataset.target).scrollIntoView({behavior:'smooth',block:'start'});}));
 $('reset').addEventListener('click',()=>{if(($('ad-text').value||state.voice||state.music)&&!confirm('Effacer le projet en cours ? Les fichiers téléchargés seront conservés.'))return;invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=null;state.music=null;state.voiceURL=null;state.voiceScript=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;for(const id of ['company','activity','city','details','ad-text','voice-file','music-file'])$(id).value='';$('voice-filename').textContent='Importer une voix off';$('music-filename').textContent='Ajouter une musique de fond';$('voice-volume').value=100;$('music-volume').value=18;$('voice-value').textContent='100 %';$('music-value').textContent='18 %';$('duck').checked=true;$('ads-lead').value='';$('voice-provider').value='openai';$('openai-voice').value='coral';$('voice-id').value='';updateProvider();countWords();$('company').focus();toast('Votre nouveau projet est prêt.');});
 let providerStatus=null;
@@ -48,8 +67,8 @@ $('save-video-audio').addEventListener('click',()=>busy('save-video-audio',async
  if(!state.mixBlob)throw new Error('Créez votre spot audio avant de l’enregistrer.');
  if(!$('ads-lead').value||$('ads-lead').value!==state.exportLeadId)throw new Error('Sélectionnez un lead, puis recréez le mix pour l’associer à ce profil.');
  if(!state.exportScript?.trim())throw new Error('Renseignez le texte exact de la voix off, puis recréez le mix.');
- const response=await fetch('/api/ads/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:Number(state.exportLeadId),script:state.exportScript,audio:await base64(state.mixBlob)})});
- const audio=await response.json();if(!response.ok)throw new Error(audio.detail||'Enregistrement impossible.');
+ const audio=state.exportAudioId?{id:state.exportAudioId,lead_id:Number(state.exportLeadId)}:await saveAssociatedAudio(state.mixBlob,state.exportScript,state.exportLeadId);
+ state.exportAudioId=audio.id;
  location.href='/video-ads?lead_id='+audio.lead_id+'&audio_id='+audio.id;
 }));
 fetch('/api/ads/leads').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(leads=>{

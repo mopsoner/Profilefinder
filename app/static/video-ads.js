@@ -37,7 +37,13 @@
     $('source-audio').pause();$('source-audio').hidden=!audio;
     if(audio){$('source-audio').src=audio.url;$('audio-meta').textContent=`${audio.duration.toFixed(1)} s · ${audio.script.split(/\s+/).length} mots · audio conservé pour ce lead`;}
     else{$('source-audio').removeAttribute('src');$('audio-meta').textContent='Aucun audio sélectionné. Créez-le dans Ads ou importez un fichier existant.';}
-    updatePreparation();
+    loadAudioMessage(audio);updatePreparation();
+  }
+  function loadAudioMessage(audio=selectedAudio()){
+    $('video-copy-text').value=audio?.script||'';
+    $('video-copy-meta').textContent=audio?'Message conservé avec cet audio · utilisé pour préparer les slides.':'Sélectionnez un audio pour retrouver son message.';
+    $('use-video-message').disabled=!audio?.script?.trim();
+    $('restore-audio-message').hidden=!audio;
   }
   function drawHistory(projects) {
     $('video-history').replaceChildren();
@@ -45,7 +51,7 @@
     projects.forEach(project=>{const button=document.createElement('button');button.type='button';button.className='history-item'+(state.project?.id===project.id?' chosen':'');const label=document.createElement('span');label.textContent=labels[project.status]||project.status;const date=document.createElement('small');date.textContent=new Date(project.created_at+'Z').toLocaleDateString('fr-FR')+' · '+({portrait:'9:16',landscape:'16:9',square:'1:1'}[project.format]);button.append(label,date);button.onclick=()=>loadProject(project.id);$('video-history').append(button);});
   }
   async function loadContext(audioId) {
-    const epoch=++state.epoch;clearTimeout(state.timer);state.project=null;state.context=null;state.submitting=false;state.loadingContext=true;$('video-copy-text').value='';$('video-copy-meta').textContent='';$('use-video-message').disabled=true;
+    const epoch=++state.epoch;clearTimeout(state.timer);state.project=null;state.context=null;state.submitting=false;state.loadingContext=true;$('restore-audio-message').hidden=true;$('video-copy-text').value='';$('video-copy-meta').textContent='';$('use-video-message').disabled=true;
     $('story-empty').hidden=false;$('storyboard').hidden=true;$('video-result').hidden=true;$('project-progress').hidden=true;$('project-error').hidden=true;$('project-badge').textContent='EN ATTENTE';$('lead-context').hidden=true;$('final-video').pause();updatePreparation();
     const lead=$('video-lead').value;if(!lead){state.loadingContext=false;$('video-history').replaceChildren();updatePreparation();return;}
     try{
@@ -105,7 +111,8 @@
     const button=$('generate-video-message');button.disabled=true;button.textContent='L’IA prépare votre message…';
     try{const result=await api('/api/ads/message',{lead_id:Number(lead),tone:$('video-copy-tone').value,duration:Number($('video-copy-duration').value),details:$('video-copy-details').value},150000);if($('video-lead').value!==lead||$('video-copy-text').value!==original){notice('Le profil ou le texte a changé. Relancez la génération pour conserver vos modifications.');return;}$('video-copy-text').value=result.script;$('video-copy-meta').textContent=`OpenAI · environ ${result.estimated_duration} s · relisez et ajustez avant la voix off`;$('use-video-message').disabled=false;notice('Votre message personnalisé est prêt.');}catch(error){notice(error.message);}finally{button.disabled=false;button.textContent='✦ Générer mon message';}
   };
-  $('video-copy-text').oninput=()=>{$('use-video-message').disabled=!$('video-copy-text').value.trim();};
+  $('video-copy-text').oninput=()=>{$('use-video-message').disabled=!$('video-copy-text').value.trim();$('video-copy-meta').textContent=$('video-copy-text').value===(selectedAudio()?.script||'')?'Message conservé avec cet audio · utilisé pour préparer les slides.':'Nouveau brouillon : créez sa voix off pour utiliser ce texte avec un nouvel audio.';};
+  $('restore-audio-message').onclick=()=>loadAudioMessage();
   $('use-video-message').onclick=()=>{const lead=$('video-lead').value,text=$('video-copy-text').value.trim();if(!lead||!text)return;try{sessionStorage.setItem('ads-message-'+lead,text);location.href='/ads?lead_id='+lead+'&message_draft=1';}catch{notice('Le stockage du navigateur est indisponible. Copiez le texte dans Ads pour créer sa voix off.');}};
   updatePreparation();
   const params=new URLSearchParams(location.search);if(params.get('lead_id')&&Array.from($('video-lead').options).some(o=>o.value===params.get('lead_id'))){$('video-lead').value=params.get('lead_id');loadContext(params.get('audio_id')).then(()=>{if(params.get('project_id'))loadProject(params.get('project_id'));});}

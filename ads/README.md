@@ -28,8 +28,8 @@ Les clés restent côté serveur. Les appels consomment les crédits du fourniss
 
 - Interface française responsive, profil d’entreprise modifiable, génération de script OpenAI à partir du dossier du prospect, copie et estimation de durée.
 - Génération vocale OpenAI par défaut et ElevenLabs en option, si configurés, import et écoute de voix, import de musique, volumes, ducking et export MP3 réel avec FFmpeg.
-- Le formulaire Ads permet de sélectionner un lead réel ou un profil libre. Après le mixage, **Enregistrer et créer une Video Ad** conserve l’audio et son texte pour le lead et ouvre le studio vidéo. La génération du message utilise OpenAI avec le profil, les avis, les analyses et le site du prospect ; le résultat reste éditable.
-- Le projet non enregistré reste en mémoire dans la page ; recharger efface le travail. Les audios associés à un lead sont conservés sur le serveur pour Video Ads.
+- Le formulaire Ads permet de sélectionner un lead réel ou un profil libre. La voix générée et le mix sont automatiquement sauvegardés avec leur texte exact pour le lead sélectionné. **Ouvrir cet audio et son message dans Video Ads** ouvre le studio vidéo sans créer de doublon. Le message y est automatiquement chargé pour l’audio sélectionné. La génération du message utilise OpenAI avec le profil, les avis, les analyses et le site du prospect ; le résultat reste éditable.
+- Les réglages et brouillons non enregistrés restent en mémoire dans la page. Les voix générées et mixes liés à un lead sont sauvegardés sur le serveur avec leur message ; les profils libres sans lead ne sont pas sauvegardés automatiquement. Un échec de sauvegarde est signalé et peut être réessayé avec le mix.
 - Les polices Google sont facultatives ; des polices système prennent le relais sans accès réseau.
 
 Ne pas créer de worktree pour utiliser ce dépôt : chaque tâche cloud dispose déjà de son environnement isolé.
