@@ -21,6 +21,7 @@ from .video_render import MEDIA, ROOT, FORMATS, audio_duration, site_pages, spli
 from ads.server import decode_audio
 import httpx
 from .ad_copy import TONES, lead_facts, generate_copy, CopyUnavailable
+from .video_direction import LAYOUT_NAMES, scene_layout
 
 router = APIRouter()
 logger = logging.getLogger('profilefinder.video_ads')
@@ -190,8 +191,14 @@ def lead_context(lead_id: int, db: Session = Depends(get_db)):
 
 
 def project_payload(row):
+    slides=json.loads(row.slides_json)
+    for index,slide in enumerate(slides):
+        if slide.get('layout') not in LAYOUT_NAMES:
+            slide['layout']=scene_layout(index,len(slides))
+        preview=MEDIA/'video'/row.id/f'slide-{index}.png'
+        slide['preview_url']=f'/api/video-ads/{row.id}/scenes/{index}?v={preview.stat().st_mtime_ns}' if preview.is_file() else None
     return {'id': row.id, 'lead_id': row.lead_id, 'audio_id': row.audio_id, 'format': row.format, 'status': row.status,
-            'progress': row.progress, 'error': row.error, 'slides': json.loads(row.slides_json),
+            'progress': row.progress, 'error': row.error, 'slides': slides, 'layouts':LAYOUT_NAMES,
             'created_at': row.created_at.isoformat(), 'video_url': f'/api/video-ads/{row.id}/video' if row.status == 'completed' else None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page', 'url': f'/api/video-ads/{row.id}/pages/{i}'} for i, p in enumerate(site_pages(json.loads(row.site_json), 'Site'))]}
 
@@ -219,11 +226,15 @@ def run_job(identifier, mode):
         # Release the database connection before expensive browser and encoder work.
         directory.mkdir(parents=True, exist_ok=True)
         if mode == 'prepare':
-            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=n), format_name)
+            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=round(n*.45)), format_name)
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=45+round(n*.55)))
             update(identifier, status='ready', progress=100)
+        elif mode=='preview':
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=n))
+            update(identifier,status='ready',progress=100)
         else:
-            compose_slides(directory, slides, lead_data, format_name)
-            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=n))
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=round(n*.2)))
+            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=20+round(n*.8)))
             update(identifier, status='completed', progress=100)
     except Exception as error:
         logger.exception('Video Ads job failed: %s', identifier)
@@ -301,9 +312,10 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
         raise HTTPException(409, 'Un rendu est déjà en cours. Réessayez après sa fin.')
     try:
         row.slides_json = json.dumps(slides)
-        row.status, row.progress, row.error = 'rendering', 0, None
+        preview_only=data.get('preview_only') is True
+        row.status, row.progress, row.error = 'preparing' if preview_only else 'rendering', 0, None
         db.commit()
-        pool.submit(run_job, row.id, 'render')
+        pool.submit(run_job, row.id, 'preview' if preview_only else 'render')
     except Exception:
         slot.release()
         raise
@@ -319,6 +331,17 @@ def page_capture(identifier: str, index: int, db: Session = Depends(get_db)):
     if not path.is_file():
         raise HTTPException(404, 'Capture en préparation ou indisponible.')
     return FileResponse(path, media_type='image/png')
+
+
+@router.get('/api/video-ads/{identifier}/scenes/{index}')
+def scene_preview(identifier: str, index: int, db: Session = Depends(get_db)):
+    row=db.get(VideoAd,identifier)
+    if not row or not 0<=index<len(json.loads(row.slides_json)):
+        raise HTTPException(404,'Scène introuvable.')
+    path=MEDIA/'video'/row.id/f'slide-{index}.png'
+    if not path.is_file():
+        raise HTTPException(404,'Scène en préparation ou indisponible.')
+    return FileResponse(path,media_type='image/png',headers={'Cache-Control':'no-store'})
 
 
 @router.get('/api/video-ads/{identifier}/video')
