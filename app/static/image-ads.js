@@ -6,7 +6,68 @@
   let pending = false;
   let prospectFields = {};
   const activeJobs = ['queued', 'running'];
-  const renderLabel = () => projectId ? 'Enregistrer les modifications' : 'Composer et enregistrer';
+  let currentProject = null;
+  let previewTimer;
+  let previewRequest;
+  let previewUrl;
+  function cancelPreview() {
+    clearTimeout(previewTimer);
+    previewRequest?.abort();
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = null;
+  }
+  function syncActions() {
+    const ai = $('mode').value === 'ai';
+    const hasPhoto = ProspectMedia.values($('references')).length === 1;
+    $('render').disabled = pending || (ai ? !currentProject?.has_background : !hasPhoto);
+    $('render').textContent = projectId ? 'Retoucher le flyer' : 'Composer et enregistrer';
+    $('ai-render').hidden = !ai;
+    $('ai-render').disabled = pending;
+    $('ai-render').textContent = currentProject?.png ? 'Modifier le visuel avec l’IA' : 'Générer le visuel avec l’IA';
+    $('variant').hidden = !currentProject?.png;
+    $('variant').disabled = pending || (!ai && !hasPhoto);
+    $('reference-option').hidden = !ai || !currentProject?.png;
+    $('restore').disabled = pending || !$('version').value;
+  }
+  function showVersions(project) {
+    const selected = $('version').value;
+    $('version').replaceChildren(new Option('Choisir une version', ''));
+    for (const version of project?.versions || []) {
+      $('version').add(new Option('Version ' + version.id + ' · ' +
+        new Date(version.created_at + 'Z').toLocaleString('fr-FR'), version.id));
+    }
+    $('version').value = [...$('version').options].some(option => option.value === selected) ? selected : '';
+    $('versions').hidden = !project?.versions.length;
+    showComparison();
+  }
+  function showComparison() {
+    const version = currentProject?.versions.find(item => String(item.id) === $('version').value);
+    $('comparison').hidden = $('version-download').hidden = !version;
+    $('restore').disabled = pending || !version;
+    if (version) {
+      $('current-version').src = currentProject.versions[0].png;
+      $('old-version').src = version.png;
+      $('version-download').href = version.png + '?download=true';
+    }
+  }
+  $('version').onchange = showComparison;
+  $('restore').onclick = async () => {
+    const revision = epoch;
+    pending = true;
+    cancelPreview();
+    syncActions();
+    try {
+      await ProspectMedia.request(base() + '/' + projectId + '/versions/' + $('version').value + '/restore', {method: 'POST'});
+      if (revision === epoch) await selectLead(projectId);
+    } catch (error) {
+      if (revision === epoch) report(error.message);
+    } finally {
+      if (revision === epoch) {
+        pending = false;
+        syncActions();
+      }
+    }
+  };
   function openProject(id) {
     const query = new URLSearchParams({lead_id: $('lead').value});
     if (id) query.set('project_id', id);
@@ -30,7 +91,40 @@
     $('style-field').hidden = realPhoto;
     $('style').disabled = realPhoto;
   }
+  function schedulePreview() {
+    syncActions();
+    clearTimeout(previewTimer);
+    previewRequest?.abort();
+    if (pending) return;
+    const options = payload();
+    const hasBackground = options.mode === 'photo' ? options.media_ids.length === 1 : currentProject?.has_background;
+    if (!hasBackground) {
+      $('preview-status').textContent = 'Sélectionnez une photo ou générez un visuel pour afficher l’aperçu.';
+      $('preview').hidden = true;
+      return;
+    }
+    const revision = epoch;
+    previewTimer = setTimeout(async () => {
+      const request = new AbortController();
+      previewRequest = request;
+      try {
+        const url = base() + (projectId ? '/' + projectId : '') + '/preview';
+        const response = await fetch(url, {...ProspectMedia.json(options), signal: request.signal});
+        if (!response.ok) throw new Error('Aperçu indisponible pour ces réglages.');
+        const blob = await response.blob();
+        if (revision !== epoch || request.signal.aborted) return;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(blob);
+        $('preview').src = previewUrl;
+        $('preview').hidden = false;
+        $('preview-status').textContent = 'Aperçu des retouches sur le visuel actuel';
+      } catch (error) {
+        if (revision === epoch && !request.signal.aborted) $('preview-status').textContent = error.message;
+      }
+    }, 350);
+  }
   $('mode').addEventListener('change', syncImageStyle);
+  form.addEventListener('input', schedulePreview);
   function syncHeadlinePlacement() {
     $('headline-placement').hidden = !form.elements.message.value.trim();
   }
@@ -39,6 +133,10 @@
     const revision = ++epoch;
     projectId = id;
     pending = true;
+    cancelPreview();
+    currentProject = null;
+    showVersions(null);
+    $('preview-status').textContent = '';
     form.reset();
     syncImageStyle();
     syncHeadlinePlacement();
@@ -50,8 +148,7 @@
       card.setAttribute('aria-pressed', String(card.dataset.project === id));
     }
     $('history').replaceChildren();
-    $('render').disabled = true;
-    $('render').textContent = renderLabel();
+    syncActions();
     report('');
     let loaded = false;
     try {
@@ -78,15 +175,16 @@
       if (revision === epoch) report(error.message);
     } finally {
       if (revision === epoch) {
-        pending = false;
-        $('render').disabled = !loaded;
+        pending = !loaded;
+        syncActions();
       }
     }
   }
   async function poll(project, revision) {
     while (revision === epoch) {
       const latest = project.jobs[0];
-      $('render').textContent = latest?.status === 'failed' ? 'Relancer la composition' : renderLabel();
+      currentProject = project;
+      showVersions(project);
       $('history').replaceChildren(...project.jobs.map(job => {
         const item = document.createElement('li');
         const link = document.createElement('a');
@@ -111,6 +209,9 @@
   }
   async function selectLead(id = '', startNew = false) {
     const revision = ++epoch;
+    pending = true;
+    cancelPreview();
+    syncActions();
     $('context').hidden = !$('lead').value;
     $('projects').replaceChildren();
     $('preview').hidden = $('download').hidden = true;
@@ -160,6 +261,7 @@
       if (revision === epoch) {
         form.elements.message.value = data.script.slice(0, 220);
         syncHeadlinePlacement();
+        schedulePreview();
         report('Accroche prête à modifier.');
       }
     } catch (error) {
@@ -173,10 +275,15 @@
     if (pending) return;
     const revision = epoch;
     pending = true;
-    $('render').disabled = true;
+    cancelPreview();
+    syncActions();
+    $('preview').hidden = true;
+    $('preview-status').textContent = '';
     report('Enregistrement de la composition…');
     try {
-      const data = await ProspectMedia.request(base() + (projectId ? '/' + projectId : ''), ProspectMedia.json(payload()));
+      const data = await ProspectMedia.request(base() + (projectId ? '/' + projectId : ''), ProspectMedia.json({...payload(),
+        action: event.submitter?.value || ($('mode').value === 'ai' ? 'ai' : 'local'),
+        use_previous_flyer: $('use-flyer').checked}));
       if (revision !== epoch) return;
       history.replaceState(null, '', '?lead_id=' + $('lead').value + '&project_id=' + data.id);
       await selectLead(data.id);
@@ -185,7 +292,7 @@
     } finally {
       if (revision === epoch) {
         pending = false;
-        $('render').disabled = false;
+        schedulePreview();
       }
     }
   };

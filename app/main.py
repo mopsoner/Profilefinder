@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select,func,text
 from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
-from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd,ProspectMedia,ImageAd
+from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd,ProspectMedia,ImageAd,ImageAdVersion
 from .media import router as media_router, CATEGORIES, selected_media, media_payload
 from .image_ads import router as image_router, recover_image_jobs, templates as image_templates
 from .core import grid_points,normalize_phone,score
@@ -391,6 +391,7 @@ def ops_delete_department(department_code:str):
 @app.post("/ops/database/clear-prospects")
 def ops_clear_prospects(db:Session=Depends(get_db)):
     db.query(JobLead).delete(synchronize_session=False)
+    db.query(ImageAdVersion).delete(synchronize_session=False)
     db.query(ImageAd).delete(synchronize_session=False)
     db.query(ProspectMedia).delete(synchronize_session=False)
     db.query(Lead).delete(synchronize_session=False)
@@ -407,6 +408,7 @@ def ops_clear_jobs(db:Session=Depends(get_db)):
 @app.post("/ops/database/clear-all")
 def ops_clear_all(db:Session=Depends(get_db)):
     db.query(JobLead).delete(synchronize_session=False)
+    db.query(ImageAdVersion).delete(synchronize_session=False)
     db.query(ImageAd).delete(synchronize_session=False)
     db.query(ProspectMedia).delete(synchronize_session=False)
     db.query(Lead).delete(synchronize_session=False)

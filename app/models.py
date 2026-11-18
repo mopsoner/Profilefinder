@@ -118,3 +118,14 @@ class ImageAd(Base):
     background: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ImageAdVersion(Base):
+    __tablename__ = 'image_ad_versions'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('image_ads.id'), index=True)
+    options_json: Mapped[str] = mapped_column(Text)
+    background_key: Mapped[str | None] = mapped_column(String(64))
+    background: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    png: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

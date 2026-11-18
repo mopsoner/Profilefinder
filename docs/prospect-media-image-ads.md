@@ -7,7 +7,7 @@ Les photos Google déjà disponibles sont affichées avec l’attribution. Ajout
 
 ## Composition d’un flyer Image Ads
 
-La création IA propose le type Flyer par défaut. Le rendu PNG utilise le nom affiché, le métier et les coordonnées disponibles sur la fiche prospect. L’accroche est facultative. Son placement peut être choisi dans le studio ou précisé en mode Automatique, par exemple « Accroche : en haut » ou « Accroche : à gauche ». Le style visuel agit sur la palette et la typographie de l’annonce et guide aussi le fond en Création IA. OpenAI crée le visuel principal, puis ProfileFinder compose les textes et le logo localement.
+La création IA propose le type Flyer par défaut. Le rendu PNG utilise le nom affiché, le métier et les coordonnées disponibles sur la fiche prospect. L’accroche est facultative. Son placement peut être choisi dans le studio ou précisé en mode Automatique, par exemple « Accroche : en haut » ou « Accroche : à gauche ». Le style visuel agit sur la palette et la typographie de l’annonce et guide aussi le fond en Création IA. OpenAI crée le visuel principal, puis ProfileFinder compose les textes et le logo localement. Le studio propose un aperçu local quand une photo ou un fond existe. **Retoucher le flyer** réutilise ce visuel. **Modifier le visuel avec l’IA** utilise le dernier fond sans texte comme référence principale. L’envoi du flyer complet précédent est facultatif. **Créer une variante** crée un projet séparé. Les rendus enregistrés peuvent être comparés, téléchargés et restaurés depuis l’historique. Les mises en page Commerciale, Éditoriale et Promotionnelle changent la composition locale.
 
 ## Studios
 

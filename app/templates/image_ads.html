@@ -28,6 +28,12 @@
           {% for value, style in visual_styles.items() %}<option value="{{value}}">{{style[0]}}</option>{% endfor %}
         </select>
       </div>
+      <label for="image-layout">Mise en page</label>
+      <select id="image-layout" name="layout">
+        <option value="commercial">Commerciale · coordonnées en pied</option>
+        <option value="editorial">Éditoriale · visuel encadré</option>
+        <option value="promotion">Promotionnelle · bandeau pour l’offre</option>
+      </select>
       <label for="image-format">Format</label><select id="image-format" name="format">
         {% for value, size in formats.items() %}<option value="{{value}}">{{{'square':'Carré','portrait':'Portrait','story':'Story','landscape':'Paysage'}[value]}} · {{size[0]}} × {{size[1]}}</option>{% endfor %}
       </select>
@@ -72,16 +78,35 @@
         <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
         <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"
                   aria-describedby="image-operator-help" placeholder="Ex. Photographier le produit en lumière naturelle. Accroche : en haut."></textarea>
-        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le visuel. En placement automatique, « Accroche : en haut » ou « Accroche : à gauche » place aussi le texte sur le flyer.</p>
+        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le visuel. Une retouche IA utilise le fond précédent comme référence. Vous pouvez aussi joindre le flyer complet. En placement automatique, « Accroche : en haut » ou « Accroche : à gauche » place aussi le texte sur le flyer.</p>
       </details>
       <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
-      <button id="image-render">Composer et enregistrer</button>
+      <label id="image-reference-option" hidden><input id="image-use-flyer" type="checkbox"> Joindre aussi le flyer complet précédent à OpenAI</label>
+      <div class="image-studio-actions">
+        <button id="image-render" type="submit" value="local">Retoucher le flyer</button>
+        <button id="image-ai-render" type="submit" value="ai">Modifier le visuel avec l’IA</button>
+        <button id="image-variant" type="submit" value="variant" class="secondary" title="Crée un projet séparé et génère un nouveau visuel en mode IA" hidden>Créer une variante</button>
+      </div>
     </form>
     <section class="panel">
       <h2>Aperçu</h2>
       <p role="status" id="image-status"></p>
+      <p id="image-preview-status" class="muted" aria-live="polite"></p>
       <img id="image-preview" alt="Aperçu de l’annonce" hidden>
-      <a class="button secondary" id="image-download" download hidden>Télécharger le PNG</a>
+      <a class="button secondary" id="image-download" download hidden>Télécharger le PNG enregistré</a>
+      <section id="image-versions" hidden>
+        <h3>Versions enregistrées</h3>
+        <label for="image-version">Version à comparer</label>
+        <select id="image-version"></select>
+        <div id="image-comparison" class="image-version-comparison" hidden>
+          <figure><img id="image-current-version" alt="Version enregistrée actuelle"><figcaption>Version actuelle</figcaption></figure>
+          <figure><img id="image-old-version" alt="Version sélectionnée"><figcaption>Version sélectionnée</figcaption></figure>
+        </div>
+        <div class="image-studio-actions">
+          <button id="image-restore" type="button" class="secondary" disabled>Restaurer cette version</button>
+          <a id="image-version-download" download hidden>Télécharger cette version</a>
+        </div>
+      </section>
       <h3>Historique des traitements</h3><ul id="image-history"></ul>
     </section>
   </div>

@@ -8,6 +8,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Lock
+from typing import Literal
 from uuid import uuid4
 
 import httpx
@@ -24,7 +25,7 @@ from .config import settings
 from .db import SessionLocal, get_db
 from .job_tracking import ACTIVE, finish_task, job_payload, start_task
 from .media import image_from_bytes, require_lead, selected_media
-from .models import ImageAd, Job, Lead, LeadWebsite
+from .models import ImageAd, ImageAdVersion, Job, Lead, LeadWebsite
 from .site_style import website_art
 from .website_identity import homepage_identity
 
@@ -67,6 +68,9 @@ FLYER_PALETTES = {
 
 class Composition(BaseModel):
     mode: str
+    action: Literal['auto', 'local', 'ai', 'variant'] = 'auto'
+    use_previous_flyer: bool = False
+    layout: Literal['commercial', 'editorial', 'promotion'] = 'commercial'
     format: str
     message: str = Field('', max_length=220)
     display_name: str | None = Field(None, max_length=255)
@@ -113,7 +117,7 @@ def identity_for(db, lead):
     return homepage_identity(lead.website)
 
 
-def generate_background(prompt, format_name, refs):
+def generate_background(prompt, format_name, refs, *, previous_background=None, previous_flyer=None):
     cfg = settings()
     if not cfg.openai_api_key:
         raise ValueError('Configurez la clé OpenAI pour la création IA.')
@@ -123,9 +127,23 @@ def generate_background(prompt, format_name, refs):
     options = {'model': cfg.openai_image_model, 'prompt': prompt, 'size': size,
                'quality': 'medium', 'output_format': 'png'}
     url = 'https://api.openai.com/v1/images/'
-    if refs:
-        response = httpx.post(url + 'edits', data=options, headers=headers, timeout=180,
-                              files=[('image[]', ('reference.png', data, 'image/png')) for data in refs])
+    files = [('image[]', ('reference.png', data, 'image/png')) for data in refs]
+    if previous_background:
+        files.insert(0, ('image[]', ('fond-precedent.png', previous_background, 'image/png')))
+        options['prompt'] += (
+            '\nLa première image est le fond de la version précédente. Utilise-le comme référence principale '
+            'pour la retouche, conserve les éléments compatibles et applique les nouvelles consignes en priorité.'
+        )
+    if previous_flyer:
+        files.append(('image[]', ('flyer-precedent.png', previous_flyer, 'image/png')))
+        options['prompt'] += (
+            '\nLa dernière image jointe est la version précédente du flyer. '
+            'Utilise son visuel comme point de départ, conserve les éléments graphiques compatibles '
+            'et applique les nouvelles consignes en priorité. Ne reproduis aucun texte, numéro, '
+            'adresse ni logo du flyer précédent. Le studio les compose séparément.'
+        )
+    if files:
+        response = httpx.post(url + 'edits', data=options, headers=headers, timeout=180, files=files)
     else:
         response = httpx.post(url + 'generations', json=options, headers=headers, timeout=180)
     response.raise_for_status()
@@ -221,27 +239,36 @@ def compose(background, logo, options):
                             contact, font=contact_font, fill=ink, spacing=6)
 
     photo = image_from_bytes(background)
-    frame = (width, footer_top - header_bottom)
+    layout = options.get('layout', 'commercial')
+    image_margin = margin if layout == 'editorial' else 0
+    promo_height = unit // 7 if layout == 'promotion' and options['message'].strip() else 0
+    frame = (width - 2 * image_margin, footer_top - header_bottom - promo_height)
     artwork = (ImageOps.fit(photo, frame, Image.Resampling.LANCZOS) if options['fit'] == 'cover'
                else ImageOps.contain(photo, frame, Image.Resampling.LANCZOS))
     canvas.alpha_composite(artwork, ((width - artwork.width) // 2,
                                     header_bottom + (frame[1] - artwork.height) // 2))
+    if promo_height:
+        draw.rectangle((0, footer_top - promo_height, width, footer_top), fill=accent)
     draw.rectangle((margin, header_bottom - 4, margin + unit // 14, header_bottom - 1), fill=accent)
 
     if headline := options['message'].strip():
-        position = headline_position(options)
+        position = 'bottom' if promo_height else headline_position(options)
         inset = margin // 3
         max_width = width // 2 - margin if position in ('left', 'right') else width - 2 * margin
         headline, font, bounds = fit_flyer_text(draw, headline, headline_font, round(unit * .041),
-                                                 max_width - 2 * inset, max(18, frame[1] // 3))
+                                                 max_width - 2 * inset, max(18, promo_height // 2 if promo_height else frame[1] // 3))
         box_width = bounds[2] - bounds[0] + 2 * inset
         box_height = bounds[3] - bounds[1] + 2 * inset
         center = position == 'center' or options['alignment'] == 'center'
         x = width - margin - box_width if position == 'right' else margin
+        if promo_height:
+            x = (width - box_width) // 2
         if center and position not in ('left', 'right'):
             x = (width - box_width) // 2
         y = {'top': header_bottom + inset, 'bottom': footer_top - inset - box_height}.get(
             position, header_bottom + (frame[1] - box_height) // 2)
+        if promo_height:
+            y = footer_top - (promo_height + box_height) // 2
         draw.rounded_rectangle((x, y, x + box_width, y + box_height), radius=inset // 2, fill=panel)
         draw.multiline_text((x + inset - bounds[0], y + inset - bounds[1]), headline,
                             font=font, fill=ink, spacing=6, align='center' if center else 'left')
@@ -259,6 +286,10 @@ def run_image_job(identifier, task_id):
                 return
             lead = require_lead(db, row.lead_id)
             options = json.loads(row.options_json)
+            operation = json.loads(task.types)
+            if not isinstance(operation, dict):
+                operation = {}
+            action = operation.get('action', 'auto')
             refs = [media.content for media in selected_media(db, lead.id, options['media_ids'], ('image',))]
             logo = selected_media(db, lead.id, [options['logo_id']], ('image',))[0].content if options['logo_id'] else None
             if options['mode'] == 'ai':
@@ -284,10 +315,17 @@ def run_image_job(identifier, task_id):
                           'les coordonnées et le logo. Aucun texte, logo, cadre ni filigrane dans le visuel.\n' + prompt)
                 key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
                                                 settings().openai_image_model]).encode()).hexdigest()
-                if row.background_key != key or not row.background:
+                if action != 'local' and (action in ('ai', 'variant') or row.background_key != key or not row.background):
                     task.stage, task.total_found = 'Génération du fond OpenAI', 25
                     db.commit()
-                    row.background = generate_background(prompt, options['format'], refs)
+                    source = row
+                    if operation.get('source_version'):
+                        source = owned_version(db, owned_image(db, lead.id, operation['source']),
+                                               operation['source_version'])
+                    previous_flyer = source.png if operation.get('use_previous_flyer') else None
+                    row.background = generate_background(
+                        prompt, options['format'], refs,
+                        previous_background=source.background, previous_flyer=previous_flyer)
                     row.background_key = key
                 background = row.background
             else:
@@ -295,6 +333,10 @@ def run_image_job(identifier, task_id):
             task.stage, task.total_found = 'Composition du flyer et des coordonnées', 75
             db.commit()
             row.png = compose(background, logo, options)
+            if options['mode'] == 'photo':
+                row.background = None
+                row.background_key = None
+            snapshot_version(db, row)
             finish_task(task)
             db.commit()
     except Exception as error:
@@ -323,12 +365,37 @@ def owned_image(db, lead_id, identifier):
     return row
 
 
+def snapshot_version(db, row):
+    version = ImageAdVersion(project_id=row.id, options_json=row.options_json,
+                             background_key=row.background_key, background=row.background, png=row.png)
+    db.add(version)
+    return version
+
+
+def owned_version(db, row, version_id):
+    version = db.get(ImageAdVersion, version_id)
+    if not version or version.project_id != row.id:
+        raise HTTPException(404, 'Version introuvable.')
+    return version
+
+
+def active_render(db, row):
+    return db.scalar(select(Job.id).where(
+        Job.resource_id == row.id, Job.kind == 'image_render', Job.status.in_(ACTIVE)).limit(1))
+
+
 def image_payload(db, row):
     jobs = db.scalars(select(Job).where(Job.kind == 'image_render', Job.resource_id == row.id)
                       .order_by(Job.id.desc())).all()
     has_png = db.scalar(select(ImageAd.png.is_not(None)).where(ImageAd.id == row.id))
+    versions = db.execute(select(ImageAdVersion.id, ImageAdVersion.created_at).where(
+        ImageAdVersion.project_id == row.id).order_by(ImageAdVersion.id.desc())).all()
     return {'id': row.id, 'options': json.loads(row.options_json),
             'png': f'/api/leads/{row.lead_id}/image-ads/{row.id}/png' if has_png else None,
+            'has_background': db.scalar(select(ImageAd.background.is_not(None)).where(ImageAd.id == row.id)),
+            'versions': [{'id': version.id, 'created_at': version.created_at,
+                          'png': f'/api/leads/{row.lead_id}/image-ads/{row.id}/versions/{version.id}/png'}
+                         for version in versions],
             'jobs': [job_payload(job) for job in jobs]}
 
 
@@ -403,9 +470,35 @@ def download(lead_id: int, identifier: str, download: bool = False, db: Session 
     return Response(row.png, media_type='image/png', headers=headers)
 
 
-@router.post('/api/leads/{lead_id}/image-ads', status_code=202)
-@router.post('/api/leads/{lead_id}/image-ads/{identifier}', status_code=202)
-def enqueue(lead_id: int, composition: Composition, identifier: str | None = None, db: Session = Depends(get_db)):
+@router.get('/api/leads/{lead_id}/image-ads/{identifier}/versions/{version_id}/png')
+def version_png(lead_id: int, identifier: str, version_id: int, download: bool = False,
+                db: Session = Depends(get_db)):
+    version = owned_version(db, owned_image(db, lead_id, identifier), version_id)
+    headers = {'Cache-Control': 'no-store'}
+    if download:
+        headers['Content-Disposition'] = f'attachment; filename="image-ad-{identifier}-v{version.id}.png"'
+    return Response(version.png, media_type='image/png', headers=headers)
+
+
+@router.post('/api/leads/{lead_id}/image-ads/{identifier}/versions/{version_id}/restore')
+def restore_version(lead_id: int, identifier: str, version_id: int, db: Session = Depends(get_db)):
+    with queue_lock:
+        row = owned_image(db, lead_id, identifier)
+        version = owned_version(db, row, version_id)
+        if active_render(db, row):
+            raise HTTPException(409, 'Un traitement est déjà en cours.')
+        row.options_json = version.options_json
+        row.background = version.background
+        row.background_key = version.background_key
+        row.png = version.png
+        snapshot_version(db, row)
+        task = start_task(db, 'image_render', lead_id, row.id, 'Restauration d’une version')
+        finish_task(task)
+        db.commit()
+        return {'id': row.id}
+
+
+def prepare_composition(db, lead_id, composition, identifier):
     lead = require_lead(db, lead_id)
     if composition.mode not in ('photo', 'ai') or composition.format not in FORMATS or (
         composition.position not in ('auto', 'top', 'center', 'bottom', 'left', 'right') or composition.fit not in ('contain', 'cover')
@@ -425,7 +518,7 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
     saved_options = json.loads(previous.options_json) if previous else {}
     business = {**flyer_business(lead), **saved_options.get('business', {})}
-    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', *business})
+    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', 'action', 'use_previous_flyer', *business})
     name = composition.display_name
     options['display_name'] = saved_options.get('display_name', lead.name) if name is None else ' '.join(name.split())
     for field in business:
@@ -439,24 +532,60 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
         options['visual_style'] = composition.visual_style
     if instruction := composition.operator_instruction.strip():
         options['operator_instruction'] = instruction
-    options['identity'] = saved_options['identity'] if previous else identity_for(db, lead)
+    options['identity'] = saved_options.get('identity', {})
+    if not previous and composition.action != 'local':
+        options['identity'] = identity_for(db, lead)
+    for field in ('position', 'alignment', 'fit', 'text_color'):
+        if field not in composition.model_fields_set and field in saved_options:
+            options[field] = saved_options[field]
+    return options
+
+
+@router.post('/api/leads/{lead_id}/image-ads/preview')
+@router.post('/api/leads/{lead_id}/image-ads/{identifier}/preview')
+def preview(lead_id: int, composition: Composition, identifier: str | None = None, db: Session = Depends(get_db)):
+    options = prepare_composition(db, lead_id, composition.model_copy(update={'action': 'local'}), identifier)
+    if composition.mode == 'photo':
+        background = selected_media(db, lead_id, options['media_ids'], ('image',))[0].content
+    else:
+        background = owned_image(db, lead_id, identifier).background if identifier else None
+        if not background:
+            raise HTTPException(409, 'Générez un visuel pour afficher son aperçu.')
+    logo = selected_media(db, lead_id, [options['logo_id']], ('image',))[0].content if options['logo_id'] else None
+    return Response(compose(background, logo, options), media_type='image/png', headers={'Cache-Control': 'no-store'})
+
+
+@router.post('/api/leads/{lead_id}/image-ads', status_code=202)
+@router.post('/api/leads/{lead_id}/image-ads/{identifier}', status_code=202)
+def enqueue(lead_id: int, composition: Composition, identifier: str | None = None, db: Session = Depends(get_db)):
     with queue_lock:
-        row = owned_image(db, lead_id, identifier) if identifier else ImageAd(
-            id=uuid4().hex, lead_id=lead_id)
-        if identifier:
-            previous_options = json.loads(row.options_json)
-            for field in ('position', 'alignment', 'fit', 'text_color'):
-                if field not in composition.model_fields_set and field in previous_options:
-                    options[field] = previous_options[field]
+        options = prepare_composition(db, lead_id, composition, identifier)
+        source = owned_image(db, lead_id, identifier) if identifier else None
+        if source and active_render(db, source):
+            raise HTTPException(409, 'Un traitement est déjà en cours.')
+        if composition.action == 'local' and composition.mode == 'ai' and not (source and source.background):
+            raise HTTPException(409, 'Générez un visuel avant de retoucher le flyer.')
+        row = source if source and composition.action != 'variant' else ImageAd(id=uuid4().hex, lead_id=lead_id)
+        if row is source:
             latest = db.scalar(select(Job).where(Job.resource_id == identifier, Job.kind == 'image_render')
                                .order_by(Job.id.desc()).limit(1))
-            if latest and latest.status in ACTIVE:
-                raise HTTPException(409, 'Un traitement est déjà en cours.')
-            if latest and latest.status == 'completed' and previous_options == options:
+            if latest and latest.status == 'completed' and json.loads(row.options_json) == options and composition.action in ('auto', 'local'):
                 return {'id': row.id, 'job_id': latest.id}
+        source_version = None
+        if source:
+            source_version = db.scalar(select(ImageAdVersion.id).where(
+                ImageAdVersion.project_id == source.id).order_by(ImageAdVersion.id.desc()).limit(1))
+            if source.png and source_version is None:
+                version = snapshot_version(db, source)
+                db.flush()
+                source_version = version.id
         row.options_json = json.dumps(options, ensure_ascii=False)
         db.add(row)
         task = start_task(db, 'image_render', lead_id, row.id, 'En attente de composition')
+        task.types = json.dumps({'action': composition.action,
+                                 'source': source.id if source and row is not source else None,
+                                 'source_version': source_version if row is not source else None,
+                                 'use_previous_flyer': composition.use_previous_flyer})
         task.status = 'queued'
         task.started_at = None
         db.commit()
