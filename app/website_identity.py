@@ -40,17 +40,18 @@ class Cues(HTMLParser):
         self.colors.update(color.lower() for color in HEX.findall(css))
 
 
-def public_homepage(url):
+def public_resource(url, media_types, max_bytes, *, truncate=False):
+    accept = ', '.join(media_types)
     for _ in range(3):
         target = urlsplit(url)
         if (target.scheme not in ('http', 'https') or not target.hostname or target.username or
                 target.password or target.port not in (None, 80 if target.scheme == 'http' else 443)):
-            return ''
+            return b''
         host = target.hostname.encode('idna').decode()
         port = 443 if target.scheme == 'https' else 80
         addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         if not addresses or any(not ipaddress.ip_address(entry[4][0]).is_global for entry in addresses):
-            return ''
+            return b''
         cls = http.client.HTTPSConnection if target.scheme == 'https' else http.client.HTTPConnection
         connection = cls(host, port, timeout=3)
         # Pin the verified IP while retaining the original Host and HTTPS certificate validation.
@@ -59,17 +60,24 @@ def public_homepage(url):
             (ip, port), timeout, source_address)
         try:
             path = (target.path or '/') + ('?' + target.query if target.query else '')
-            connection.request('GET', path, headers={'Accept': 'text/html', 'User-Agent': 'ProfileFinder'})
+            connection.request('GET', path, headers={'Accept': accept, 'User-Agent': 'ProfileFinder'})
             response = connection.getresponse()
             if 300 <= response.status < 400 and response.getheader('Location'):
                 url = urljoin(url, response.getheader('Location'))
                 continue
-            if response.status == 200 and 'text/html' in response.getheader('Content-Type', ''):
-                return response.read(128 * 1024).decode('utf-8', errors='replace')
-            return ''
+            content_type = response.getheader('Content-Type', '').split(';')[0].strip().lower()
+            if response.status == 200 and content_type in media_types:
+                data = response.read(max_bytes if truncate else max_bytes + 1)
+                return data if len(data) <= max_bytes else b''
+            return b''
         finally:
             connection.close()
-    return ''
+    return b''
+
+
+
+def public_homepage(url):
+    return public_resource(url, ('text/html',), 128 * 1024, truncate=True).decode('utf-8', errors='replace')
 
 
 @lru_cache(maxsize=128)

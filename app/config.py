@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     google_places_api_key: str = ""
+    serpapi_api_key: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-5"
     openai_image_model: str = "gpt-image-2"

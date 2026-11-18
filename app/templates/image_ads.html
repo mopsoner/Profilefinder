@@ -76,6 +76,19 @@
       <details open><summary>Photo réelle ou références IA</summary>
         <p class="muted">Sélectionnez une photo réelle ou jusqu’à quatre références IA.</p>
         <div class="prospect-media-grid" id="image-references"></div>
+        <section id="image-design-library" hidden aria-labelledby="image-design-title">
+          <h3 id="image-design-title">Références de design</h3>
+          <label for="image-design-query">Rechercher dans Google Images</label>
+          <div class="image-studio-actions">
+            <input id="image-design-query" type="search" maxlength="150" placeholder="Ex. beauty salon flyer">
+            <button type="button" id="image-design-search" class="secondary">Rechercher</button>
+          </div>
+          <p id="image-design-status" class="muted" role="status"></p>
+          <div id="image-design-results" class="prospect-media-grid"></div>
+          <h4>Bibliothèque de références partagée</h4>
+          <p class="muted">Les références enregistrées peuvent être réutilisées pour d’autres prospects. Sélectionnez au maximum quatre images en comptant les médias du prospect.</p>
+          <div id="image-design-saved" class="prospect-media-grid"></div>
+        </section>
         <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
         <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"
                   aria-describedby="image-operator-help" placeholder="Ex. Photographier le produit en lumière naturelle. Accroche : en haut."></textarea>

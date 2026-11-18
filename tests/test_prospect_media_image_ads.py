@@ -13,7 +13,7 @@ from PIL import Image, ImageChops
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app import ads, image_ads, media, video_ads
+from app import ads, design_references, image_ads, media, video_ads
 from app.db import Base, get_db
 from app.job_tracking import activity_feed, start_task
 from app.models import ImageAd, Lead, LeadWebsite
@@ -48,7 +48,7 @@ def studio(tmp_path, monkeypatch):
     monkeypatch.setattr(video_ads, 'MEDIA', tmp_path / 'media')
     api = FastAPI()
     api.dependency_overrides[get_db] = dependency
-    for router in (media.router, image_ads.router, ads.router, video_ads.router):
+    for router in (media.router, image_ads.router, design_references.router, ads.router, video_ads.router):
         api.include_router(router)
     with TestClient(api) as client:
         yield client, sessions
@@ -451,3 +451,24 @@ def test_contact_icon_option_places_icons_in_footer(studio):
     assert ImageChops.difference(baseline, with_icons).getbbox()[1] > 880
     assert client.post(path, json={**data, 'phone': '', 'address': ''}).content == client.post(
         path, json={**data, 'phone': '', 'address': '', 'contact_icons': False}).content
+
+
+
+def test_google_images_returns_all_unique_results_in_one_request(studio, monkeypatch):
+    client, _ = studio
+    monkeypatch.setattr(design_references, 'settings', lambda: SimpleNamespace(serpapi_api_key='test-secret'))
+    calls = []
+    results = [{'title': f'Flyer {i}', 'original': f'https://example.test/flyer-{i}.png'}
+               for i in range(65)]
+    results.append(results[0])
+
+    def fake_search(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None,
+                               json=lambda: {'images_results': results, 'serpapi_pagination': {'next': 'unused'}})
+
+    monkeypatch.setattr(design_references.httpx, 'get', fake_search)
+    response = client.get('/api/design-references/search', params={'q': 'flyer beauté'})
+    assert response.status_code == 200
+    assert len(response.json()['results']) == 65
+    assert len(calls) == 1

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd,ProspectMedia,ImageAd,ImageAdVersion
 from .media import router as media_router, CATEGORIES, selected_media, media_payload
+from .design_references import router as design_references_router
 from .image_ads import router as image_router, recover_image_jobs, templates as image_templates
 from .core import grid_points,normalize_phone,score
 from .places import Places
@@ -74,6 +75,7 @@ from .ads import router as ads_router
 app.include_router(ads_router)
 app.include_router(media_router)
 app.include_router(image_router)
+app.include_router(design_references_router)
 from .video_ads import router as video_ads_router, recover_interrupted_jobs
 app.include_router(video_ads_router)
 @app.on_event('startup')
