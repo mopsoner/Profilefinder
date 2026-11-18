@@ -119,3 +119,9 @@ html[data-theme="light"] footer,html[data-theme="light"] .footer-dot{color:#5a6b
 
 #image-form fieldset { min-width: 0; margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
 #image-form legend { padding: 0 6px; font-weight: 600; }
+
+.image-studio-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 12px; }
+#image-reference-option input { width: auto; }
+.image-version-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.image-version-comparison figure { min-width: 0; margin: 0; }
+.image-version-comparison img { width: 100%; height: 160px; object-fit: contain; }

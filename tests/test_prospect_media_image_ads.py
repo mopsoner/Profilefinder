@@ -122,12 +122,15 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     monkeypatch.setattr(image_ads.httpx, 'post', fake_image)
     monkeypatch.setattr(image_ads, 'generate_copy', lambda *args, **kwargs: {'script': 'Texte simulé'})
     assert client.post(url + '/message', json=options).json()['script'] == 'Texte simulé'
-    options.update(mode='ai', format='square', mood='lumineuse')
+    previous_flyer = output.content
+    options.update(mode='ai', format='square', mood='lumineuse', use_previous_flyer=True)
     path = f'{url}/{identifier}'
     assert client.post(path, json=options).status_code == 202
     wait(client, identifier)
     assert calls[0][0].endswith('/edits')
     assert calls[0][1]['files'][0][1][1] == media.validate(png())[1]
+    assert calls[0][1]['files'][-1] == ('image[]', ('flyer-precedent.png', previous_flyer, 'image/png'))
+    assert 'Ne reproduis aucun texte' in calls[0][1]['data']['prompt']
     previous_png = client.get(wait(client, identifier)['png']).content
     options.update(display_name='Atelier Alpha')
     assert client.post(path, json=options).status_code == 202
@@ -140,6 +143,7 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     project = wait(client, identifier)
     assert len(calls) == 1
     assert len(project['jobs']) == 4
+    previous_flyer = client.get(project['png']).content
     instruction = 'Privilégier un cadrage serré sur le produit.'
     options['operator_instruction'] = instruction
     assert client.post(path, json=options).status_code == 202
@@ -147,6 +151,8 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     assert project['options']['operator_instruction'] == instruction
     assert len(calls) == 2
     assert instruction in calls[1][1]['data']['prompt']
+    assert calls[1][1]['files'][0][1] == ('fond-precedent.png', png('blue'), 'image/png')
+    assert calls[1][1]['files'][-1][1][1] == previous_flyer
     options['operator_instruction'] = '  ' + instruction + '  '
     assert client.post(path, json=options).json()['job_id'] == project['jobs'][0]['id']
     assert len(calls) == 2
@@ -334,3 +340,47 @@ def test_flyer_contact_overrides_can_be_saved_empty_without_editing_lead(studio)
     assert original['name'] == 'Alpha'
     assert original['business'] == {'activity': 'Restaurant', 'phone': '01 00 00 00 00',
                                     'address': 'Adresse originale', 'website': 'example.test'}
+
+
+
+def test_image_preview_versions_restore_and_variant(studio, monkeypatch):
+    client, _ = studio
+    calls = []
+
+    def fake_background(prompt, format_name, refs, **references):
+        calls.append(references)
+        return png('blue' if len(calls) == 1 else 'green')
+
+    monkeypatch.setattr(image_ads, 'generate_background', fake_background)
+    url = '/api/leads/1/image-ads'
+    options = {'mode': 'ai', 'format': 'square', 'action': 'ai'}
+    identifier = client.post(url, json=options).json()['id']
+    first = wait(client, identifier)
+    path = f'{url}/{identifier}'
+    version = first['versions'][0]
+    original = client.get(version['png']).content
+    options.update(action='local', layout='promotion', message='Offre du jour')
+    preview = client.post(path + '/preview', json=options)
+    assert preview.status_code == 200 and preview.content != original
+    assert len(client.get(path).json()['versions']) == 1
+    assert client.post(path, json=options).status_code == 202
+    revised = wait(client, identifier)
+    assert len(revised['versions']) == 2
+    assert client.get(revised['png']).content == preview.content
+    assert len(calls) == 1
+    assert client.get(version['png'].replace('/1/', '/2/')).status_code == 404
+
+    restore = path + '/versions/' + str(version['id']) + '/restore'
+    assert client.post(restore).status_code == 200
+    restored = client.get(path).json()
+    assert len(restored['versions']) == 3
+    assert client.get(restored['png']).content == original
+    assert len(calls) == 1
+
+    options.update(action='variant')
+    variant_id = client.post(path, json=options).json()['id']
+    assert variant_id != identifier
+    variant = wait(client, variant_id)
+    assert client.get(variant['png']).content != original
+    assert client.get(restored['png']).content == original
+    assert calls[-1] == {'previous_background': png('blue'), 'previous_flyer': None}
