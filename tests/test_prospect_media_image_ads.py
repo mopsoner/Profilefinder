@@ -487,3 +487,13 @@ def test_google_images_returns_all_unique_results_in_one_request(studio, monkeyp
     assert len(calls) == 1
     assert client.get('/api/leads/1/image-ads').json()['projects'] == []
     assert client.get('/api/leads/2/image-ads').json()['projects'] == []
+
+
+
+def test_image_ads_rejects_multiple_shared_design_references(studio):
+    client, _ = studio
+    response = client.post('/api/leads/1/image-ads', json={
+        'mode': 'ai', 'format': 'square', 'design_reference_ids': ['a' * 32, 'b' * 32],
+    })
+    assert response.status_code == 422
+    assert response.json()['detail'][0]['loc'] == ['body', 'design_reference_ids']
