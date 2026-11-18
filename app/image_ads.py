@@ -45,6 +45,7 @@ class Composition(BaseModel):
     colors: str = Field('', max_length=180)
     emphasize: str = Field('', max_length=300)
     avoid: str = Field('', max_length=300)
+    operator_instruction: str = Field('', max_length=1500)
     media_ids: list[str] = Field(default_factory=list, max_length=4)
     logo_id: str | None = None
     position: str = 'bottom'
@@ -147,10 +148,12 @@ def run_image_job(identifier, task_id):
             refs = [media.content for media in selected_media(db, lead.id, options['media_ids'], ('image',))]
             logo = selected_media(db, lead.id, [options['logo_id']], ('image',))[0].content if options['logo_id'] else None
             if options['mode'] == 'ai':
-                prompt = json.dumps({'entreprise': lead.name, 'activité': lead.business_type,
-                                     'site': lead.website, 'identité': options['identity'],
-                                     **{k: options[k] for k in ('objective', 'mood', 'colors', 'emphasize', 'avoid')}},
-                                    ensure_ascii=False, sort_keys=True)
+                brief = {'entreprise': lead.name, 'activité': lead.business_type,
+                         'site': lead.website, 'identité': options['identity'],
+                         **{key: options[key] for key in ('objective', 'mood', 'colors', 'emphasize', 'avoid')}}
+                if instruction := options.get('operator_instruction'):
+                    brief['instruction opérateur pour le fond'] = instruction
+                prompt = json.dumps(brief, ensure_ascii=False, sort_keys=True)
                 prompt = ('Crée un fond publicitaire plein cadre en suivant ce brief. Laisse de l’espace pour '
                           'une surimpression. Aucun texte, logo, bordure ou filigrane.\n' + prompt)
                 key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
@@ -286,7 +289,9 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
         logo, = selected_media(db, lead_id, [composition.logo_id], ('image',))
         if logo.category != 'logo' and not (previous and json.loads(previous.options_json).get('logo_id') == logo.id):
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
-    options = composition.model_dump()
+    options = composition.model_dump(exclude={'operator_instruction'})
+    if instruction := composition.operator_instruction.strip():
+        options['operator_instruction'] = instruction
     options['identity'] = json.loads(previous.options_json)['identity'] if previous else identity_for(db, lead)
     with queue_lock:
         row = owned_image(db, lead_id, identifier) if identifier else ImageAd(

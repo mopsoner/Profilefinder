@@ -132,6 +132,16 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     project = wait(client, identifier)
     assert len(calls) == 1
     assert len(project['jobs']) == 3
+    instruction = 'Privilégier un cadrage serré sur le produit.'
+    options['operator_instruction'] = instruction
+    assert client.post(path, json=options).status_code == 202
+    project = wait(client, identifier)
+    assert project['options']['operator_instruction'] == instruction
+    assert len(calls) == 2
+    assert instruction in calls[1][1]['data']['prompt']
+    options['operator_instruction'] = '  ' + instruction + '  '
+    assert client.post(path, json=options).json()['job_id'] == project['jobs'][0]['id']
+    assert len(calls) == 2
     with sessions() as db:
         jobs = activity_feed(db)
         assert all(job['result_url'].endswith(identifier) for job in jobs if job['kind'] == 'image_render')
