@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Float, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import String, Float, DateTime, Text, ForeignKey, UniqueConstraint, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -77,6 +77,7 @@ class AudioAd(Base):
     lead_id: Mapped[int] = mapped_column(ForeignKey('leads.id'), index=True)
     script: Mapped[str] = mapped_column(Text)
     duration: Mapped[float] = mapped_column(Float)
+    media_json: Mapped[str] = mapped_column(Text, default='{}')
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -91,4 +92,29 @@ class VideoAd(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     slides_json: Mapped[str] = mapped_column(Text, default='[]')
     site_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ProspectMedia(Base):
+    __tablename__ = 'prospect_media'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey('leads.id'), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    category: Mapped[str] = mapped_column(String(20))
+    mime: Mapped[str] = mapped_column(String(50))
+    size: Mapped[int] = mapped_column()
+    source: Mapped[str] = mapped_column(String(20), default='upload')
+    attribution: Mapped[str] = mapped_column(Text, default='')
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ImageAd(Base):
+    __tablename__ = 'image_ads'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey('leads.id'), index=True)
+    options_json: Mapped[str] = mapped_column(Text)
+    background_key: Mapped[str | None] = mapped_column(String(64))
+    background: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,13 +1,15 @@
-"""Serve Ads Studio inside the main ProfileFinder application."""
+"""Serve Audio Ads inside the main ProfileFinder application."""
+import base64
 import json
 from pathlib import Path
 import urllib.error
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from ads.server import mix_audio
 from .models import Job
+from .media import selected_media
 from .db import SessionLocal
 from .job_tracking import start_task, finish_task
 from .voice import synthesize, voice_status, VoiceUnavailable
@@ -18,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @router.get('/ads', include_in_schema=False)
 @router.get('/ads/', include_in_schema=False)
+@router.get('/audio-ads', include_in_schema=False)
+@router.get('/audio-ads/', include_in_schema=False)
 def studio():
     return FileResponse(ROOT / 'ads/index.html')
 
@@ -47,6 +51,12 @@ def tracked_audio(data, mix=False):
         lead_id=data.get('lead_id')
         if lead_id is not None and type(lead_id) is not int:
             raise ValueError('Identifiant de prospect invalide.')
+        if mix:
+            for role in ('voice', 'music'):
+                identifier=data.get(role+'_media_id')
+                if identifier is not None:
+                    asset,=selected_media(db,lead_id,[identifier],('audio',))
+                    data[role]=base64.b64encode(asset.content).decode('ascii')
         task=start_task(db,'audio_mix' if mix else 'audio_voice',lead_id,
                         stage='Mixage FFmpeg' if mix else 'Synthèse vocale · '+('ElevenLabs' if data.get('provider')=='elevenlabs' else 'OpenAI'))
         db.commit()
@@ -87,6 +97,8 @@ async def audio(request: Request):
         if request.url.path == '/api/mix':
             return await run_in_threadpool(tracked_audio, data, True)
         return await run_in_threadpool(tracked_audio, data)
+    except HTTPException as error:
+        return JSONResponse({'error': error.detail}, status_code=error.status_code)
     except (ValueError, UnicodeDecodeError) as error:
         return JSONResponse({'error': str(error)}, status_code=400)
     except VoiceUnavailable as error:

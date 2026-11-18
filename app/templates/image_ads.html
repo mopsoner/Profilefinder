@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Image Ads</h1>
+<label for="image-lead">Prospect</label><select id="image-lead">
+<option value="">Choisir un prospect</option>
+{% for lead in leads %}<option value="{{lead.id}}" {% if lead.id==lead_id %}selected{% endif %}>{{lead.name}}</option>{% endfor %}
+</select>
+<div id="image-context" data-project="{{project_id}}" hidden>
+  <p id="image-identity"></p>
+  <label>Créations du prospect<select id="image-project"><option value="">Nouvelle création</option></select></label>
+  <div class="image-studio">
+    <form id="image-form" class="panel">
+      <label for="image-mode">Mode</label><select id="image-mode" name="mode"><option value="photo">Photo réelle</option><option value="ai">Création IA</option></select>
+      <label for="image-format">Format</label><select id="image-format" name="format">
+        {% for value, size in formats.items() %}<option value="{{value}}">{{{'square':'Carré','portrait':'Portrait','story':'Story','landscape':'Paysage'}[value]}} · {{size[0]}} × {{size[1]}}</option>{% endfor %}
+      </select>
+      <label>Message publicitaire<textarea name="message" required maxlength="220" rows="3"></textarea></label>
+      <button type="button" id="image-message" class="secondary">Générer le message avec OpenAI</button>
+      <details><summary>Instructions client</summary>
+        <label>Objectif<input name="objective" maxlength="300"></label>
+        <label>Ambiance<input name="mood" maxlength="300"></label>
+        <label>Couleurs<input name="colors" maxlength="180"></label>
+        <label>Éléments à mettre en avant<input name="emphasize" maxlength="300"></label>
+        <label>Éléments à éviter<input name="avoid" maxlength="300"></label>
+      </details>
+      <details open><summary>Photo réelle ou références IA</summary>
+        <p class="muted">Sélectionnez une photo réelle ou jusqu’à quatre références IA.</p>
+        <div class="prospect-media-grid" id="image-references"></div>
+      </details>
+      <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
+      <details><summary>Ajustements</summary>
+        <label>Placement<select name="position"><option value="bottom">Bas</option><option value="center">Centre</option><option value="top">Haut</option></select></label>
+        <label>Alignement<select name="alignment"><option value="left">Gauche</option><option value="center">Centre</option></select></label>
+        <label>Cadrage<select name="fit"><option value="contain">Afficher l’image entière</option><option value="cover">Remplir le cadre</option></select></label>
+        <label>Couleur du texte<input type="color" name="text_color" value="#ffffff"></label>
+      </details>
+      <button id="image-render">Composer et enregistrer</button>
+    </form>
+    <section class="panel">
+      <h2>Aperçu</h2>
+      <p role="status" id="image-status"></p>
+      <img id="image-preview" alt="Aperçu de l’annonce" hidden>
+      <a class="button secondary" id="image-download" download hidden>Télécharger le PNG</a>
+      <h3>Historique des traitements</h3><ul id="image-history"></ul>
+    </section>
+  </div>
+</div>
+<script defer src="/static/image-ads.js"></script>
+{% endblock %}

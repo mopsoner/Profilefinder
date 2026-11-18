@@ -34,7 +34,7 @@ Ouvrir ensuite `http://IP_DU_SERVEUR:8000`.
 
 ## Interface
 
-Le dashboard, les recherches, les prospects, Sites IA, Ads, les jobs et les opérations partagent désormais une identité claire, avec fond gris très pâle, surfaces blanches et accents verts/violets. La mise en page d’Ads Studio est conservée. La navigation est commune et adaptée au mobile.
+Le dashboard, les recherches, les prospects, Sites IA, Audio Ads, les jobs et les opérations partagent désormais une identité claire, avec fond gris très pâle, surfaces blanches et accents verts/violets. La mise en page d’Ads Studio est conservée. La navigation est commune et adaptée au mobile.
 
 Le thème et la structure partagés se trouvent dans `shared/theme.css` et `shared/layout.js`. Les composants métier sont dans `app/static/style.css` ; la palette claire commune est dans `app/static/light-theme.css`, activée par `data-theme="light"`. Les vitrines clients générées conservent leur design propre. Voir `ads/README.md` pour la voix off et le mixage audio.
 
@@ -65,3 +65,7 @@ sudo systemctl status profilefinder
 
 ## Avis
 L'architecture reste extensible pour une future synchronisation d'avis. Le stockage permanent des textes d'avis Google n'est pas activé avant validation des règles de conservation et d'attribution applicables.
+
+## Médias par prospect et Image Ads
+
+Voir [le guide des studios et de la mise à jour Ubuntu](docs/prospect-media-image-ads.md).

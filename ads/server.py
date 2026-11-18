@@ -1,4 +1,4 @@
-"""Ads Studio: static UI, OpenAI-first voice generation, local FFmpeg mixing."""
+"""Audio Ads: static UI, OpenAI-first voice generation, local FFmpeg mixing."""
 import base64
 import binascii
 import json
@@ -147,5 +147,5 @@ if __name__ == '__main__':
     sys.path.insert(0, str(ROOT.parent))
     host = os.environ.get('ADS_HOST', '127.0.0.1')
     port = int(os.environ.get('PORT', '8000'))
-    print(f'Ads Studio démarré sur {host}:{port}', flush=True)
+    print(f'Audio Ads démarré sur {host}:{port}', flush=True)
     ThreadingHTTPServer((host, port), Handler).serve_forever()

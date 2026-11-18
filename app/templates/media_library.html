@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Médias</h1>
+<form method="get"><label>Prospect
+<select name="lead_id" required><option value="">Choisir un prospect</option>
+{% for lead in leads %}<option value="{{lead.id}}" {% if lead.id==lead_id %}selected{% endif %}>{{lead.name}}</option>{% endfor %}
+</select></label><button>Afficher</button></form>
+{% if lead_id %}{% include 'media_block.html' %}{% endif %}
+{% endblock %}

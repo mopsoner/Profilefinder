@@ -6,7 +6,7 @@ from .models import Job, Lead, VideoAd, AudioAd
 KINDS = {'search':'Recherche Google Places','site_ai':'Création de site IA',
          'audio_copy':'Texte publicitaire IA','audio_voice':'Voix off IA','audio_mix':'Mixage audio',
          'video_prepare':'Préparation des plans','video_preview':'Actualisation des plans',
-         'video_render':'Export vidéo MP4','audio_saved':'Audio enregistré'}
+         'image_copy':'Message Image Ads','image_render':'Composition Image Ads','video_render':'Export vidéo MP4','audio_saved':'Audio enregistré'}
 STATUSES = {'queued':'En attente','running':'En cours','completed':'Terminé','failed':'En erreur','ready':'Plans prêts'}
 ACTIVE = ('queued','running')
 
@@ -14,7 +14,7 @@ ACTIVE = ('queued','running')
 def start_task(db, kind, lead_id=None, resource_id=None, stage=None):
     lead = db.get(Lead, lead_id) if type(lead_id) is int else None
     row = Job(kind=kind, lead_id=lead.id if lead else None, resource_id=resource_id,
-              city=lead.name if lead else 'Studio Ads', latitude=0, longitude=0, radius=0,
+              city=lead.name if lead else 'Audio Ads', latitude=0, longitude=0, radius=0,
               types='[]', max_results=0, rings=0, status='running',
               started_at=datetime.utcnow(), stage=stage)
     db.add(row)
@@ -32,7 +32,7 @@ def finish_task(row, error=None):
 def job_payload(row, leads=None):
     lead=(leads or {}).get(row.lead_id)
     kind=row.kind or 'search'
-    progress=100 if row.status=='completed' else None
+    progress=100 if row.status=='completed' else row.total_found if kind=='image_render' else None
     error=row.error
     if (error or '').startswith('PROGRESS:'):
         try:
@@ -44,7 +44,9 @@ def job_payload(row, leads=None):
     if lead:
         if kind=='site_ai': result_url=f'/leads/{lead.id}/web'
         elif kind.startswith('video_') and row.resource_id: result_url=f'/leads/{lead.id}/video-ads?project_id={row.resource_id}'
-        elif kind.startswith('audio_'): result_url=f'/ads?lead_id={lead.id}'
+        elif kind=='image_render' and row.resource_id: result_url=f'/image-ads?lead_id={lead.id}&project_id={row.resource_id}'
+        elif kind=='image_copy': result_url=f'/image-ads?lead_id={lead.id}'
+        elif kind.startswith('audio_'): result_url=f'/audio-ads?lead_id={lead.id}'
     fallback={'search':'Recherche Google Places','site_ai':'Génération du site et de ses images','audio_voice':'Synthèse de la voix off','audio_mix':'Mixage FFmpeg'}
     return {'id':row.id,'kind':kind,'kind_label':KINDS.get(kind,kind),'city':lead.name if lead else row.city,
             'lead_id':lead.id if lead else None,'lead_url':f'/leads/{lead.id}' if lead else None,
