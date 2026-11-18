@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Lock
@@ -52,12 +53,27 @@ VISUAL_STYLES = {
     'cinematic': ('Cinématographique', 'Éclairage directionnel, profondeur et étalonnage cinéma.'),
 }
 
+# Panel, text, accent and headline font. These palettes also affect the exported typography.
+FLYER_PALETTES = {
+    '': ('#101b2d', '#ffffff', '#93e2de', 'DejaVuSans-Bold.ttf'),
+    'minimalist': ('#f8f8f5', '#161a20', '#355c66', 'DejaVuSans.ttf'),
+    'editorial': ('#f1e9da', '#282118', '#7d4a27', 'DejaVuSerif.ttf'),
+    'bold': ('#332072', '#ffffff', '#ffe660', 'DejaVuSans-Bold.ttf'),
+    'natural': ('#f5eee1', '#23332a', '#366047', 'DejaVuSerif.ttf'),
+    'retro': ('#f8e6bd', '#39251f', '#9d382a', 'DejaVuSerif-Bold.ttf'),
+    'cinematic': ('#111217', '#fff6e8', '#f0c47a', 'DejaVuSans-Bold.ttf'),
+}
+
 
 class Composition(BaseModel):
     mode: str
     format: str
-    message: str = Field(min_length=1, max_length=220)
-    display_name: str = Field('', max_length=255)
+    message: str = Field('', max_length=220)
+    display_name: str | None = Field(None, max_length=255)
+    activity: str | None = Field(None, max_length=120)
+    phone: str | None = Field(None, max_length=80)
+    address: str | None = Field(None, max_length=300)
+    website: str | None = Field(None, max_length=300)
     image_style: str = ''
     visual_style: str = ''
     objective: str = Field('', max_length=300)
@@ -68,7 +84,7 @@ class Composition(BaseModel):
     operator_instruction: str = Field('', max_length=1500)
     media_ids: list[str] = Field(default_factory=list, max_length=4)
     logo_id: str | None = None
-    position: str = 'bottom'
+    position: str = 'auto'
     fit: str = 'contain'
     alignment: str = 'left'
     text_color: str = Field('#ffffff', pattern=r'^#[0-9a-fA-F]{6}$')
@@ -139,66 +155,97 @@ def wrap_overlay_text(draw, text, font, max_width):
     return '\n'.join(lines)
 
 
+def fit_flyer_text(draw, text, font_file, size, width, height, spacing=6):
+    while True:
+        font = ImageFont.truetype(font_file, max(size, 12))
+        wrapped = wrap_overlay_text(draw, text, font, width)
+        bounds = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=spacing)
+        if bounds[3] - bounds[1] <= height or size <= 12:
+            return wrapped, font, bounds
+        size -= 2
+
+
+def headline_position(options):
+    position = options.get('position', 'auto')
+    if position != 'auto':
+        return position
+    # Only interpret placement phrases explicitly attached to the headline.
+    instruction = options.get('operator_instruction', '').lower()
+    placements = {'en haut': 'top', 'en bas': 'bottom', 'au centre': 'center',
+                  'à gauche': 'left', 'à droite': 'right'}
+    match = re.search(r"(?:accroche|slogan|message publicitaire)\s*(?:[:=]|placé[e]?|doit être)*\s*"
+                      r"(en haut|en bas|au centre|à gauche|à droite)\b", instruction)
+    return placements[match[1]] if match else 'bottom'
+
+
 def compose(background, logo, options):
     width, height = FORMATS[options['format']]
-    source = image_from_bytes(background)
-    canvas = Image.new('RGBA', (width, height), '#171c2e')
-    image = (ImageOps.fit(source, (width, height)) if options['fit'] == 'cover'
-             else ImageOps.contain(source, (width, height)))
-    canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
-    padding = round(min(width, height) * .065)
+    unit = min(width, height)
+    margin = round(unit * .067)
+    panel, ink, accent, headline_font = FLYER_PALETTES[options.get('visual_style', '')]
+    body_font = 'DejaVuSans.ttf'
+    canvas = Image.new('RGBA', (width, height), panel)
+    draw = ImageDraw.Draw(canvas)
+
     brand = image_from_bytes(logo) if logo else None
-    overlay = Image.new('RGBA', canvas.size)
-    draw = ImageDraw.Draw(overlay)
-    name_bottom = 0
-    name = options.get('display_name', '')
     if brand:
-        brand.thumbnail((width // 4, height // 9), Image.Resampling.LANCZOS)
+        brand.thumbnail((width // 6, unit // 11), Image.Resampling.LANCZOS)
+    name_x = margin + (brand.width + margin // 3 if brand else 0)
+    activity = options.get('business', {}).get('activity', '')
+    name, font, bounds = fit_flyer_text(draw, options.get('display_name', ''), headline_font,
+                                        round(unit * .061), width - margin - name_x, unit // 9)
+    name_height = bounds[3] - bounds[1]
+    activity_text, activity_font, activity_bounds = fit_flyer_text(
+        draw, activity, body_font, round(unit * .027), width - margin - name_x, unit // 18)
+    activity_height = activity_bounds[3] - activity_bounds[1]
+    gap = margin // 6 if activity and name else 0
+    header_content = max(brand.height if brand else 0, name_height + gap + activity_height)
+    header_bottom = margin + header_content + margin // 2
+    if brand:
+        canvas.alpha_composite(brand, (margin, margin + (header_content - brand.height) // 2))
     if name:
-        name_y = padding + padding // 4
-        name_x = padding + padding // 4
-        if brand:
-            name_x += brand.width + padding // 4
-        max_width = width - name_x - padding - padding // 4
-        name_size = round(min(width, height) * .046)
-        while True:
-            name_font = ImageFont.truetype('DejaVuSans-Bold.ttf', name_size)
-            name_text = wrap_overlay_text(draw, name, name_font, max_width)
-            bounds = draw.multiline_textbbox((0, 0), name_text, font=name_font, spacing=5)
-            name_height = bounds[3] - bounds[1]
-            if name_height <= height // 9 or name_size <= 16:
-                break
-            name_size -= 2
-        brand_height = brand.height if brand else 0
-        content_height = max(name_height, brand_height)
-        name_bottom = name_y + content_height + padding // 4
-        draw.rounded_rectangle((padding, padding, name_x + bounds[2] + padding // 4, name_bottom),
-                               radius=20, fill=(14, 19, 33, 225))
-        draw.multiline_text((name_x, name_y + (content_height - name_height) // 2 - bounds[1]),
-                            name_text, font=name_font, spacing=5, fill='white')
-        if brand:
-            overlay.alpha_composite(brand, (padding + padding // 4, name_y + (content_height - brand_height) // 2))
-    elif brand:
-        canvas.alpha_composite(brand, (padding, padding))
-    # Pixel-based wrapping keeps even long unbroken words inside the output frame.
-    fontsize = round(min(width, height) * .062)
-    font = ImageFont.truetype('DejaVuSans-Bold.ttf', fontsize)
-    text = wrap_overlay_text(draw, options['message'], font, width - 4 * padding)
-    box = draw.multiline_textbbox((0, 0), text, font=font, spacing=12)
-    while box[3] - box[1] > height * .49 and fontsize > 10:
-        fontsize -= 3
-        font = ImageFont.truetype('DejaVuSans-Bold.ttf', fontsize)
-        box = draw.multiline_textbbox((0, 0), text, font=font, spacing=12)
-    text_height = box[3] - box[1]
-    y = {'top': max(2 * padding, height // 5, name_bottom + padding), 'center': (height - text_height) // 2,
-         'bottom': height - 2 * padding - text_height}[options['position']]
-    draw.rounded_rectangle((padding, y - padding // 2, width - padding,
-                            y + text_height + padding // 2), radius=24, fill=(14, 19, 33, 205))
-    centered = options['alignment'] == 'center'
-    x = (width - (box[2] - box[0])) // 2 if centered else 2 * padding
-    draw.multiline_text((x, y - box[1]), text, font=font, spacing=12,
-                        fill=options['text_color'], align='center' if centered else 'left')
-    canvas.alpha_composite(overlay)
+        draw.multiline_text((name_x, margin - bounds[1]), name, font=font, fill=ink, spacing=6)
+    if activity:
+        draw.multiline_text((name_x, margin + name_height + gap - activity_bounds[1]),
+                            activity_text, font=activity_font, fill=accent, spacing=6)
+
+    business = options.get('business', {})
+    contacts = '\n'.join(value for value in
+                         (business.get('phone'), business.get('address'), business.get('website')) if value)
+    footer_top = height - margin // 2
+    if contacts:
+        contact, contact_font, contact_bounds = fit_flyer_text(
+            draw, contacts, body_font, round(unit * .027), width - 2 * margin, height // 5)
+        footer_top = height - margin - (contact_bounds[3] - contact_bounds[1]) - margin // 2
+        draw.multiline_text((margin, footer_top + margin // 2 - contact_bounds[1]),
+                            contact, font=contact_font, fill=ink, spacing=6)
+
+    photo = image_from_bytes(background)
+    frame = (width, footer_top - header_bottom)
+    artwork = (ImageOps.fit(photo, frame, Image.Resampling.LANCZOS) if options['fit'] == 'cover'
+               else ImageOps.contain(photo, frame, Image.Resampling.LANCZOS))
+    canvas.alpha_composite(artwork, ((width - artwork.width) // 2,
+                                    header_bottom + (frame[1] - artwork.height) // 2))
+    draw.rectangle((margin, header_bottom - 4, margin + unit // 14, header_bottom - 1), fill=accent)
+
+    if headline := options['message'].strip():
+        position = headline_position(options)
+        inset = margin // 3
+        max_width = width // 2 - margin if position in ('left', 'right') else width - 2 * margin
+        headline, font, bounds = fit_flyer_text(draw, headline, headline_font, round(unit * .041),
+                                                 max_width - 2 * inset, max(18, frame[1] // 3))
+        box_width = bounds[2] - bounds[0] + 2 * inset
+        box_height = bounds[3] - bounds[1] + 2 * inset
+        center = position == 'center' or options['alignment'] == 'center'
+        x = width - margin - box_width if position == 'right' else margin
+        if center and position not in ('left', 'right'):
+            x = (width - box_width) // 2
+        y = {'top': header_bottom + inset, 'bottom': footer_top - inset - box_height}.get(
+            position, header_bottom + (frame[1] - box_height) // 2)
+        draw.rounded_rectangle((x, y, x + box_width, y + box_height), radius=inset // 2, fill=panel)
+        draw.multiline_text((x + inset - bounds[0], y + inset - bounds[1]), headline,
+                            font=font, fill=ink, spacing=6, align='center' if center else 'left')
+
     output = io.BytesIO()
     canvas.convert('RGB').save(output, 'PNG')
     return output.getvalue()
@@ -229,8 +276,12 @@ def run_image_job(identifier, task_id):
                 if instruction := options.get('operator_instruction'):
                     brief['instruction opérateur pour le fond'] = instruction
                 prompt = json.dumps(brief, ensure_ascii=False, sort_keys=True)
-                prompt = ('Crée un fond publicitaire plein cadre en suivant ce brief. Laisse de l’espace pour '
-                          'une surimpression. Aucun texte, logo, bordure ou filigrane.\n' + prompt)
+                prompt = ('Agis comme un directeur artistique et designer graphique senior. Crée le visuel '
+                          'principal d’un support publicitaire professionnel en suivant le brief. '
+                          'Compose une image équilibrée avec un sujet identifiable, des marges de sécurité '
+                          'et des zones calmes qui permettent d’ajouter une accroche. Respecte les références '
+                          'et évite les détails parasites. Le studio ajoute séparément le nom, le métier, '
+                          'les coordonnées et le logo. Aucun texte, logo, cadre ni filigrane dans le visuel.\n' + prompt)
                 key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
                                                 settings().openai_image_model]).encode()).hexdigest()
                 if row.background_key != key or not row.background:
@@ -241,7 +292,7 @@ def run_image_job(identifier, task_id):
                 background = row.background
             else:
                 background = refs[0]
-            task.stage, task.total_found = 'Composition du texte et du logo', 75
+            task.stage, task.total_found = 'Composition du flyer et des coordonnées', 75
             db.commit()
             row.png = compose(background, logo, options)
             finish_task(task)
@@ -281,6 +332,14 @@ def image_payload(db, row):
             'jobs': [job_payload(job) for job in jobs]}
 
 
+def flyer_business(lead):
+    # Use the same business labels as the prospect pages without importing the application.
+    label = templates.env.globals.get('type_label')
+    activity = label(lead.business_type) if label else (lead.business_type or '').replace('_', ' ').capitalize()
+    return {'activity': activity, 'phone': lead.phone or '', 'address': lead.address or lead.city or '',
+            'website': re.sub(r'^https?://', '', lead.website or '', flags=re.IGNORECASE).rstrip('/')}
+
+
 @router.get('/image-ads')
 def studio(request: Request, lead_id: int | None = None, project_id: str = '', db: Session = Depends(get_db)):
     if lead_id is not None:
@@ -295,7 +354,7 @@ def list_images(lead_id: int, db: Session = Depends(get_db)):
     lead = require_lead(db, lead_id)
     rows = db.execute(select(ImageAd.id, ImageAd.created_at, ImageAd.png.is_not(None).label('has_png')).where(ImageAd.lead_id == lead_id)
                       .order_by(ImageAd.created_at.desc())).all()
-    return {'name': lead.name, 'website': lead.website, 'identity': identity_for(db, lead),
+    return {'name': lead.name, 'website': lead.website, 'business': flyer_business(lead), 'identity': identity_for(db, lead),
             'projects': [{'id': row.id, 'created_at': row.created_at,
                           'png': f'/api/leads/{lead_id}/image-ads/{row.id}/png' if row.has_png else None}
                          for row in rows]}
@@ -313,7 +372,7 @@ def message(lead_id: int, composition: Composition, db: Session = Depends(get_db
     task = start_task(db, 'image_copy', lead_id, stage='Rédaction du message OpenAI')
     db.commit()
     try:
-        result = generate_copy(facts, 'bold', 8, json.dumps(brief, ensure_ascii=False))
+        result = generate_copy(facts, 'bold', 8, json.dumps(brief, ensure_ascii=False), headline=True)
     except (CopyUnavailable, httpx.HTTPError, ValueError) as error:
         detail = 'La génération du message a échoué. Vérifiez la configuration OpenAI.'
         finish_task(task, detail)
@@ -349,8 +408,8 @@ def download(lead_id: int, identifier: str, download: bool = False, db: Session 
 def enqueue(lead_id: int, composition: Composition, identifier: str | None = None, db: Session = Depends(get_db)):
     lead = require_lead(db, lead_id)
     if composition.mode not in ('photo', 'ai') or composition.format not in FORMATS or (
-        composition.position not in ('top', 'center', 'bottom') or composition.fit not in ('contain', 'cover')
-        or composition.alignment not in ('left', 'center') or not composition.message.strip()
+        composition.position not in ('auto', 'top', 'center', 'bottom', 'left', 'right') or composition.fit not in ('contain', 'cover')
+        or composition.alignment not in ('left', 'center')
         or len(composition.message.splitlines()) > 5
     ):
         raise HTTPException(400, 'Mode, format ou composition invalide. Utilisez cinq lignes de texte au maximum.')
@@ -364,15 +423,23 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
         logo, = selected_media(db, lead_id, [composition.logo_id], ('image',))
         if logo.category != 'logo' and not (previous and json.loads(previous.options_json).get('logo_id') == logo.id):
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
-    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style'})
-    options['display_name'] = ' '.join(composition.display_name.split()) or lead.name
-    if composition.mode == 'ai' and composition.image_style:
-        options['image_style'] = composition.image_style
-    if composition.mode == 'ai' and composition.visual_style:
+    saved_options = json.loads(previous.options_json) if previous else {}
+    business = {**flyer_business(lead), **saved_options.get('business', {})}
+    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', *business})
+    name = composition.display_name
+    options['display_name'] = saved_options.get('display_name', lead.name) if name is None else ' '.join(name.split())
+    for field in business:
+        value = getattr(composition, field)
+        if value is not None:
+            business[field] = ' '.join(value.split())
+    options['business'] = business
+    if composition.mode == 'ai':
+        options['image_style'] = composition.image_style or 'flyer'
+    if composition.visual_style:
         options['visual_style'] = composition.visual_style
     if instruction := composition.operator_instruction.strip():
         options['operator_instruction'] = instruction
-    options['identity'] = json.loads(previous.options_json)['identity'] if previous else identity_for(db, lead)
+    options['identity'] = saved_options['identity'] if previous else identity_for(db, lead)
     with queue_lock:
         row = owned_image(db, lead_id, identifier) if identifier else ImageAd(
             id=uuid4().hex, lead_id=lead_id)

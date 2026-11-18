@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageChops
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -120,7 +120,7 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
                                json=lambda: {'data': [{'b64_json': base64.b64encode(png('blue')).decode()}]})
 
     monkeypatch.setattr(image_ads.httpx, 'post', fake_image)
-    monkeypatch.setattr(image_ads, 'generate_copy', lambda facts, tone, duration, details: {'script': 'Texte simulé'})
+    monkeypatch.setattr(image_ads, 'generate_copy', lambda *args, **kwargs: {'script': 'Texte simulé'})
     assert client.post(url + '/message', json=options).json()['script'] == 'Texte simulé'
     options.update(mode='ai', format='square', mood='lumineuse')
     path = f'{url}/{identifier}'
@@ -158,7 +158,7 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
         label, direction = image_ads.IMAGE_STYLES[style]
         assert label in calls[-1][1]['data']['prompt']
         assert direction in calls[-1][1]['data']['prompt']
-    assert len(calls) == 4
+    assert len(calls) == 3
     assert client.post(path, json={**options, 'image_style': 'unknown'}).status_code == 422
     assert 'style visuel' not in calls[-1][1]['data']['prompt']
     options['visual_style'] = 'minimalist'
@@ -170,7 +170,7 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     label, direction = image_ads.VISUAL_STYLES['minimalist']
     assert label in calls[-1][1]['data']['prompt']
     assert direction in calls[-1][1]['data']['prompt']
-    assert len(calls) == 5
+    assert len(calls) == 4
     with sessions() as db:
         jobs = activity_feed(db)
         assert all(job['result_url'].endswith(identifier) for job in jobs if job['kind'] == 'image_render')
@@ -273,3 +273,64 @@ def test_project_gallery_lists_each_render_for_the_selected_prospect(studio):
     assert projects['c'*32] is None
     assert client.get(projects['a'*32]).content == png('red')
     assert client.get(projects['b'*32]).content == png('blue')
+
+
+
+def test_flyer_without_slogan_and_automatic_slogan_placement(studio):
+    client, sessions = studio
+    with sessions() as db:
+        lead = db.get(Lead, 1)
+        lead.business_type = 'restaurant'
+        lead.phone = '+590 590 00 00 00'
+        lead.address = '12 rue des Lilas'
+        db.commit()
+
+    photo = upload(client).json()['id']
+    path = '/api/leads/1/image-ads'
+    response = client.post(path, json={'mode': 'photo', 'format': 'square', 'media_ids': [photo]})
+    assert response.status_code == 202
+    project = wait(client, response.json()['id'])
+    options = project['options']
+    assert options['display_name'] == 'Alpha'
+    assert options['message'] == ''
+    assert options['business'] == {'activity': 'Restaurant', 'phone': '+590 590 00 00 00',
+                                    'address': '12 rue des Lilas', 'website': ''}
+    size = (1080, 1080)
+    background = png('tomato', size)
+    plain = Image.open(io.BytesIO(image_ads.compose(background, None, options)))
+    slogan = {**options, 'message': 'À découvrir', 'operator_instruction': 'Accroche : en haut.'}
+    top = Image.open(io.BytesIO(image_ads.compose(background, None, slogan)))
+    bottom = Image.open(io.BytesIO(image_ads.compose(background, None, {**slogan, 'position': 'bottom'})))
+    top_region = ImageChops.difference(plain, top).getbbox()
+    bottom_region = ImageChops.difference(plain, bottom).getbbox()
+    assert top_region[3] < bottom_region[1]
+    styled = Image.open(io.BytesIO(image_ads.compose(background, None, {**slogan, 'visual_style': 'editorial'})))
+    assert ImageChops.difference(top, styled).getbbox()
+
+
+
+def test_flyer_contact_overrides_can_be_saved_empty_without_editing_lead(studio):
+    client, sessions = studio
+    with sessions() as db:
+        lead = db.get(Lead, 1)
+        lead.business_type = 'restaurant'
+        lead.phone = '01 00 00 00 00'
+        lead.address = 'Adresse originale'
+        lead.website = 'https://example.test/'
+        db.commit()
+
+    photo = upload(client).json()['id']
+    options = {'mode': 'photo', 'format': 'square', 'media_ids': [photo],
+               'display_name': '', 'activity': '  Table   locale ', 'phone': '   ',
+               'address': 'Nouvelle adresse', 'website': ''}
+    response = client.post('/api/leads/1/image-ads', json=options)
+    assert response.status_code == 202
+    project = wait(client, response.json()['id'])
+    assert project['options']['display_name'] == ''
+    assert project['options']['business'] == {'activity': 'Table locale', 'phone': '',
+                                              'address': 'Nouvelle adresse', 'website': ''}
+    assert client.get(project['png']).status_code == 200
+    original = client.get('/api/leads/1/image-ads').json()
+    assert original['name'] == 'Alpha'
+    assert original['business'] == {'activity': 'Restaurant', 'phone': '01 00 00 00 00',
+                                    'address': 'Adresse originale', 'website': 'example.test'}

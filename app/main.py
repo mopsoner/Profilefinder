@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
 from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd,ProspectMedia,ImageAd
 from .media import router as media_router, CATEGORIES, selected_media, media_payload
-from .image_ads import router as image_router, recover_image_jobs
+from .image_ads import router as image_router, recover_image_jobs, templates as image_templates
 from .core import grid_points,normalize_phone,score
 from .places import Places
 from .site_generator import generate_lead_website,generate_site_images
@@ -145,6 +145,7 @@ TYPE_LABELS={
 def type_label(value):
     return TYPE_LABELS.get(value,(value or "").replace("_"," ").capitalize())
 tpl.env.globals["type_label"]=type_label
+image_templates.env.globals["type_label"]=type_label
 
 def google_age_label(lead):
     if lead.google_activity_at:
