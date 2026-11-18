@@ -1,5 +1,5 @@
 <section id="creations" class="lead-creations">
-<div class="section-head"><div><span class="eyebrow">LES CRÉATIONS DE CE PROSPECT</span><h2>Sites, audios & Video Ads</h2><p class="muted">Retrouvez les fichiers, messages et projets associés à {{lead.name}}.</p></div></div>
+<div class="section-head"><div><span class="eyebrow">LES CRÉATIONS DE CE PROSPECT</span><h2>Sites IA, Audio Ads, Video Ads et Image Ads</h2><p class="muted">Retrouvez les fichiers, messages et projets associés à {{lead.name}}.</p></div></div>
 <div class="lead-media-site panel"><div><strong>◈ Site IA</strong><p class="muted">{% if website %}Site enregistré · mis à jour le {{website.updated_at.strftime('%d/%m/%Y à %H:%M')}}{% else %}Aucun site enregistré pour ce prospect.{% endif %}</p></div><a class="button secondary" href="/leads/{{lead.id}}/web">{% if website %}Voir le site{% else %}Créer le site{% endif %} ↗</a></div>
 <div class="lead-media-grid">
 <section class="panel" id="lead-audios"><div class="section-head"><h3>◉ Audios <span class="badge">{{audios|length}}</span></h3><a class="button secondary" href="/audio-ads?lead_id={{lead.id}}">＋ Créer</a></div>
@@ -8,4 +8,37 @@
 <section class="panel" id="lead-videos"><div class="section-head"><h3>▸ Video Ads <span class="badge">{{videos|length}}</span></h3><a class="button secondary" href="/leads/{{lead.id}}/video-ads?new=1">＋ Créer</a></div>
 {% set statuses={'preparing':'Captures en cours','ready':'Storyboard prêt','rendering':'Rendu en cours','completed':'Vidéo disponible','failed':'À reprendre'} %}
 {% for video in videos %}<article class="lead-media-item"><div class="media-item-heading"><strong>{{{'portrait':'Vertical 9:16','landscape':'Paysage 16:9','square':'Carré 1:1'}.get(video.format,video.format)}}</strong><span class="badge {{'completed' if video.status=='completed' else 'failed' if video.status=='failed' else 'queued'}}">{{statuses.get(video.status,video.status)}}</span></div><small class="muted">{{video.created_at.strftime('%d/%m/%Y à %H:%M')}}</small>{% if video.status=='completed' %}<video controls playsinline preload="none" src="/api/video-ads/{{video.id}}/video" aria-label="Video Ad de {{lead.name}}"></video>{% elif video.error %}<p class="muted">{{video.error}}</p>{% endif %}<div class="media-item-actions"><a class="button secondary" href="/leads/{{lead.id}}/video-ads?project_id={{video.id}}">Ouvrir ce projet ↗</a>{% if video.status=='completed' %}<a href="/api/video-ads/{{video.id}}/video" download="video-ads-{{lead.id}}-{{video.id}}.mp4">Télécharger MP4 ↓</a>{% endif %}</div></article>{% else %}<p class="muted">Aucun projet vidéo. Créez un slideshow à partir d’un audio et du site de {{lead.name}}.</p>{% endfor %}
-</section></div></section>
+</section>
+<section class="panel" id="lead-image-ads">
+  <div class="section-head">
+    <h3>Image Ads <span class="badge">{{images|length}}</span></h3>
+    <a class="button secondary" href="/image-ads?lead_id={{lead.id}}&amp;new=1">＋ Créer une Image Ad</a>
+  </div>
+  <div class="lead-image-grid">
+    {% for image in images %}
+    {% set project_url = '/image-ads?lead_id=' ~ lead.id ~ '&project_id=' ~ image.id %}
+    {% set png_url = '/api/leads/' ~ lead.id ~ '/image-ads/' ~ image.id ~ '/png' %}
+    <article class="lead-media-item">
+      <div class="media-item-heading">
+        <strong>Création du {{image.created_at.strftime('%d/%m/%Y à %H:%M')}}</strong>
+        {% if image.has_png %}<span class="badge completed">Image disponible</span>{% endif %}
+      </div>
+      {% if image.has_png %}
+      <a href="{{project_url}}"><img class="lead-image-preview" src="{{png_url}}" alt="Aperçu de l’annonce de {{lead.name}} du {{image.created_at.strftime('%d/%m/%Y à %H:%M')}}" loading="lazy" decoding="async"></a>
+      {% endif %}
+      <div class="media-item-actions">
+        <a class="button secondary" href="{{project_url}}">Ouvrir ce projet ↗</a>
+        {% if image.has_png %}<a href="{{png_url}}?download=true" download>Télécharger PNG ↓</a>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% if not images %}<p class="muted">Aucune Image Ad enregistrée pour ce prospect.</p>{% endif %}
+  {% if creative_jobs %}
+  <details class="media-script">
+    <summary>Historique Image Ads</summary>
+    <ul>{% for job in creative_jobs %}<li><a href="{{job.url}}">{{job.status_label}}</a> · {{job.stage}}{% if job.progress is not none %} · {{job.progress}} %{% endif %}{% if job.error %} · {{job.error}}{% endif %} · <a href="{{job.result_url}}">Création</a></li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</section>
+</div></section>

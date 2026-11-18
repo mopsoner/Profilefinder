@@ -111,3 +111,8 @@ html[data-theme="light"] footer,html[data-theme="light"] .footer-dot{color:#5a6b
 .image-studio details { margin:12px 0; }
 .image-studio input[type=color] { min-height:42px; }
 @media (max-width: 780px) { .image-studio { grid-template-columns:minmax(0,1fr); } }
+
+.image-projects { display: flex; gap: 12px; overflow-x: auto; padding: 8px 2px; }
+.image-projects button { flex: 0 0 150px; display: grid; gap: 6px; text-align: left; }
+.image-projects button[aria-pressed="true"] { outline: 2px solid #527c36; outline-offset: -2px; }
+.image-projects img { width: 100%; height: 88px; object-fit: contain; border-radius: 4px; }

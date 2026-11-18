@@ -7,7 +7,11 @@
 </select>
 <div id="image-context" data-project="{{project_id}}" hidden>
   <p id="image-identity"></p>
-  <label>Créations du prospect<select id="image-project"><option value="">Nouvelle création</option></select></label>
+  <section aria-labelledby="image-project-title">
+    <h2 id="image-project-title">Créations du prospect</h2>
+    <button type="button" id="image-new" class="secondary">Nouvelle création</button>
+    <div id="image-projects" class="image-projects"></div>
+  </section>
   <div class="image-studio">
     <form id="image-form" class="panel">
       <label for="image-mode">Mode</label><select id="image-mode" name="mode"><option value="photo">Photo réelle</option><option value="ai">Création IA</option></select>

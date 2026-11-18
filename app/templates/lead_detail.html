@@ -29,9 +29,4 @@
 {% else %}<p class="muted">Aucun avis détaillé retourné par Google pour cette fiche.</p>{% endif %}
 </div>
 {% include 'media_block.html' %}
-<section class="panel" id="lead-image-ads"><h2>Image Ads</h2>
-<a class="button secondary" href="/image-ads?lead_id={{lead.id}}">Créer une Image Ad</a>
-<ul>{% for image in images %}<li><a href="/image-ads?lead_id={{lead.id}}&amp;project_id={{image.id}}">Création du {{image.created_at.strftime('%d/%m/%Y à %H:%M')}}</a></li>{% endfor %}</ul>
-{% if creative_jobs %}<ul>{% for job in creative_jobs %}<li><a href="{{job.url}}">{{job.status_label}}</a> · {{job.stage}}{% if job.progress is not none %} · {{job.progress}} %{% endif %}{% if job.error %} · {{job.error}}{% endif %} · <a href="{{job.result_url}}">Création</a></li>{% endfor %}</ul>{% endif %}
-</section>
 {% endblock %}

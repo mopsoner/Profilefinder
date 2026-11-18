@@ -4,6 +4,22 @@
   let epoch = 0;
   let projectId = '';
   let pending = false;
+  const activeJobs = ['queued', 'running'];
+  const renderLabel = () => projectId ? 'Enregistrer les ajustements' : 'Composer et enregistrer';
+  function openProject(id) {
+    const query = new URLSearchParams({lead_id: $('lead').value});
+    if (id) query.set('project_id', id);
+    history.replaceState(null, '', '?' + query);
+    return showProject(id);
+  }
+  function updateThumbnail(project, src) {
+    const card = [...$('projects').children].find(button => button.dataset.project === project.id);
+    const image = card?.querySelector('img');
+    if (image && image.getAttribute('src') !== src) {
+      image.src = src;
+      image.hidden = false;
+    }
+  }
   const base = () => '/api/leads/' + Number($('lead').value) + '/image-ads';
   const report = message => { $('status').textContent = message; };
   const payload = () => ({...Object.fromEntries(new FormData(form)),
@@ -14,10 +30,16 @@
     pending = true;
     form.reset();
     $('preview').hidden = $('download').hidden = true;
+    $('preview').removeAttribute('src');
+    $('download').removeAttribute('href');
+    for (const card of $('projects').children) {
+      card.setAttribute('aria-pressed', String(card.dataset.project === id));
+    }
     $('history').replaceChildren();
     $('render').disabled = true;
-    $('render').textContent = 'Composer et enregistrer';
+    $('render').textContent = renderLabel();
     report('');
+    let loaded = false;
     try {
       const project = id ? await ProspectMedia.request(base() + '/' + id) : null;
       if (revision !== epoch) return;
@@ -32,20 +54,21 @@
           ids: project?.options.logo_id ? [project.options.logo_id] : []})
       ]);
       if (revision !== epoch) return;
+      loaded = true;
       if (project) await poll(project, revision);
     } catch (error) {
       if (revision === epoch) report(error.message);
     } finally {
       if (revision === epoch) {
         pending = false;
-        $('render').disabled = false;
+        $('render').disabled = !loaded;
       }
     }
   }
   async function poll(project, revision) {
     while (revision === epoch) {
       const latest = project.jobs[0];
-      $('render').textContent = latest?.status === 'failed' ? 'Relancer la composition' : 'Composer et enregistrer';
+      $('render').textContent = latest?.status === 'failed' ? 'Relancer la composition' : renderLabel();
       $('history').replaceChildren(...project.jobs.map(job => {
         const item = document.createElement('li');
         const link = document.createElement('a');
@@ -56,33 +79,50 @@
       }));
       report(latest ? [latest.status_label, latest.stage, latest.progress == null ? '' : latest.progress + ' %', latest.error].filter(Boolean).join(' · ') : '');
       if (project.png) {
-        const src = project.png + '?v=' + (latest?.id || '');
+        const src = project.png + '?v=' + (latest ? latest.id + '-' + latest.status : '');
+        updateThumbnail(project, src);
         if ($('preview').getAttribute('src') !== src) $('preview').src = src;
         $('preview').hidden = $('download').hidden = false;
         $('download').href = project.png + '?download=true';
       }
-      if (!latest || !['queued', 'running'].includes(latest.status)) return;
+      if (!latest || !activeJobs.includes(latest.status)) return;
       await new Promise(resolve => setTimeout(resolve, 900));
       if (revision !== epoch) return;
       project = await ProspectMedia.request(base() + '/' + project.id);
     }
   }
-  async function selectLead(id = '') {
+  async function selectLead(id = '', startNew = false) {
     const revision = ++epoch;
     $('context').hidden = !$('lead').value;
-    $('project').replaceChildren(new Option('Nouvelle création', ''));
+    $('projects').replaceChildren();
+    $('preview').hidden = $('download').hidden = true;
+    $('identity').textContent = '';
+    report('');
     if ($('context').hidden) return;
-    $('render').disabled = true;
+    $('render').disabled = $('new').disabled = true;
     try {
       const context = await ProspectMedia.request(base());
       if (revision !== epoch) return;
       const colors = Object.values(context.identity.palette || {}).join(', ');
       $('identity').textContent = [context.name, context.website, colors].filter(Boolean).join(' · ');
       for (const project of context.projects) {
-        $('project').add(new Option(new Date(project.created_at + 'Z').toLocaleString('fr-FR'), project.id));
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary';
+        button.dataset.project = project.id;
+        const image = document.createElement('img');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.hidden = !project.png;
+        if (project.png) image.src = project.png;
+        const title = document.createElement('span');
+        title.textContent = new Date(project.created_at + 'Z').toLocaleString('fr-FR');
+        button.append(image, title);
+        button.onclick = () => openProject(project.id);
+        $('projects').append(button);
       }
-      $('project').value = id;
-      await showProject(id);
+      $('new').disabled = false;
+      await openProject(startNew ? '' : id || context.projects[0]?.id || '');
     } catch (error) {
       if (revision === epoch) report(error.message);
     }
@@ -91,11 +131,7 @@
     history.replaceState(null, '', $('lead').value ? '?lead_id=' + $('lead').value : '/image-ads');
     selectLead();
   };
-  $('project').onchange = () => {
-    const id = $('project').value;
-    history.replaceState(null, '', '?lead_id=' + $('lead').value + (id ? '&project_id=' + id : ''));
-    showProject(id);
-  };
+  $('new').onclick = () => openProject('');
   $('message').onclick = async () => {
     const revision = epoch;
     $('message').disabled = true;
@@ -132,5 +168,5 @@
       }
     }
   };
-  selectLead($('context').dataset.project);
+  selectLead($('context').dataset.project, new URLSearchParams(location.search).get('new') === '1');
 })();

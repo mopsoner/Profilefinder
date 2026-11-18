@@ -215,3 +215,22 @@ def test_site_identity_extracts_declared_colors(monkeypatch):
         '<meta name="theme-color" content="#123456"><style>body {color:#abcdef}</style>')
     assert website_identity.homepage_identity('https://example.test')['palette'] == {
         'theme': '#123456', 'color_1': '#abcdef'}
+
+
+def test_project_gallery_lists_each_render_for_the_selected_prospect(studio):
+    client, sessions = studio
+    with sessions() as db:
+        db.add_all([
+            ImageAd(id='a'*32, lead_id=1, options_json='{}', png=png('red')),
+            ImageAd(id='b'*32, lead_id=1, options_json='{}', png=png('blue')),
+            ImageAd(id='c'*32, lead_id=1, options_json='{}'),
+            ImageAd(id='d'*32, lead_id=2, options_json='{}', png=png('green')),
+        ])
+        db.commit()
+
+    projects = {project['id']: project['png']
+                for project in client.get('/api/leads/1/image-ads').json()['projects']}
+    assert set(projects) == {'a'*32, 'b'*32, 'c'*32}
+    assert projects['c'*32] is None
+    assert client.get(projects['a'*32]).content == png('red')
+    assert client.get(projects['b'*32]).content == png('blue')
