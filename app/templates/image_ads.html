@@ -30,6 +30,10 @@
       <details open><summary>Photo réelle ou références IA</summary>
         <p class="muted">Sélectionnez une photo réelle ou jusqu’à quatre références IA.</p>
         <div class="prospect-media-grid" id="image-references"></div>
+        <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
+        <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"
+                  aria-describedby="image-operator-help" placeholder="Ex. Placer le produit à droite et laisser de l’espace à gauche pour le texte."></textarea>
+        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le fond généré. En Photo réelle, elle est conservée comme note de projet.</p>
       </details>
       <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
       <details><summary>Ajustements</summary>
