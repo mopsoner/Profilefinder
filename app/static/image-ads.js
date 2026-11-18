@@ -4,7 +4,7 @@
   let epoch = 0;
   let projectId = '';
   let pending = false;
-  let prospectName = '';
+  let prospectFields = {};
   const activeJobs = ['queued', 'running'];
   const renderLabel = () => projectId ? 'Enregistrer les modifications' : 'Composer et enregistrer';
   function openProject(id) {
@@ -28,16 +28,21 @@
   function syncImageStyle() {
     const realPhoto = $('mode').value !== 'ai';
     $('style-field').hidden = realPhoto;
-    $('style').disabled = $('visual-style').disabled = realPhoto;
+    $('style').disabled = realPhoto;
   }
   $('mode').addEventListener('change', syncImageStyle);
+  function syncHeadlinePlacement() {
+    $('headline-placement').hidden = !form.elements.message.value.trim();
+  }
+  $('headline').addEventListener('input', syncHeadlinePlacement);
   async function showProject(id) {
     const revision = ++epoch;
     projectId = id;
     pending = true;
     form.reset();
     syncImageStyle();
-    form.elements.display_name.value = prospectName;
+    syncHeadlinePlacement();
+
     $('preview').hidden = $('download').hidden = true;
     $('preview').removeAttribute('src');
     $('download').removeAttribute('href');
@@ -52,12 +57,15 @@
     try {
       const project = id ? await ProspectMedia.request(base() + '/' + id) : null;
       if (revision !== epoch) return;
-      for (const [key, value] of Object.entries(project?.options || {})) {
-        if (['media_ids', 'logo_id', 'identity'].includes(key)) continue;
+      const options = project?.options || {};
+      const fields = {...prospectFields, ...options, ...options.business};
+      for (const [key, value] of Object.entries(fields)) {
+        if (['media_ids', 'logo_id', 'identity', 'business'].includes(key)) continue;
         const field = form.elements.namedItem(key);
         if (field instanceof HTMLElement) field.value = value;
       }
       syncImageStyle();
+      syncHeadlinePlacement();
       await Promise.all([
         ProspectMedia.mount($('references'), $('lead').value, {types: ['image'], distinct: true, ids: project?.options.media_ids}),
         ProspectMedia.mount($('logo'), $('lead').value, {types: ['image'], logos: true, name: 'logo_id',
@@ -113,7 +121,7 @@
     try {
       const context = await ProspectMedia.request(base());
       if (revision !== epoch) return;
-      prospectName = context.name;
+      prospectFields = {display_name: context.name, ...context.business};
       const colors = Object.values(context.identity.palette || {}).join(', ');
       $('identity').textContent = [context.name, context.website, colors].filter(Boolean).join(' · ');
       for (const project of context.projects) {
@@ -148,10 +156,11 @@
     $('message').disabled = true;
     report('Rédaction du message…');
     try {
-      const data = await ProspectMedia.request(base() + '/message', ProspectMedia.json({...payload(), message: 'Brouillon'}));
+      const data = await ProspectMedia.request(base() + '/message', ProspectMedia.json(payload()));
       if (revision === epoch) {
         form.elements.message.value = data.script.slice(0, 220);
-        report('Message prêt à modifier.');
+        syncHeadlinePlacement();
+        report('Accroche prête à modifier.');
       }
     } catch (error) {
       if (revision === epoch) report(error.message);
@@ -165,6 +174,7 @@
     const revision = epoch;
     pending = true;
     $('render').disabled = true;
+    report('Enregistrement de la composition…');
     try {
       const data = await ProspectMedia.request(base() + (projectId ? '/' + projectId : ''), ProspectMedia.json(payload()));
       if (revision !== epoch) return;

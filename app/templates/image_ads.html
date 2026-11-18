@@ -14,15 +14,16 @@
   </section>
   <div class="image-studio">
     <form id="image-form" class="panel">
-      <label for="image-mode">Mode</label><select id="image-mode" name="mode"><option value="photo">Photo réelle</option><option value="ai">Création IA</option></select>
+      <label for="image-mode">Mode</label><select id="image-mode" name="mode"><option value="photo">Photo réelle</option><option value="ai" selected>Création IA</option></select>
       <div id="image-style-field" hidden>
         <label for="image-style">Type d’image à générer</label>
         <select id="image-style" name="image_style" disabled>
-          <option value="">Automatique</option>
-          {% for value, style in image_styles.items() %}<option value="{{value}}">{{style[0]}}</option>{% endfor %}
+          {% for value, style in image_styles.items() %}<option value="{{value}}"{% if value=="flyer" %} selected{% endif %}>{{style[0]}}</option>{% endfor %}
         </select>
+      </div>
+      <div>
         <label for="image-visual-style">Style visuel (facultatif)</label>
-        <select id="image-visual-style" name="visual_style" disabled>
+        <select id="image-visual-style" name="visual_style">
           <option value=""></option>
           {% for value, style in visual_styles.items() %}<option value="{{value}}">{{style[0]}}</option>{% endfor %}
         </select>
@@ -30,11 +31,34 @@
       <label for="image-format">Format</label><select id="image-format" name="format">
         {% for value, size in formats.items() %}<option value="{{value}}">{{{'square':'Carré','portrait':'Portrait','story':'Story','landscape':'Paysage'}[value]}} · {{size[0]}} × {{size[1]}}</option>{% endfor %}
       </select>
-      <label for="image-display-name">Nom affiché sur l’image</label>
-      <input id="image-display-name" name="display_name" maxlength="255" required aria-describedby="image-display-name-help">
-      <p id="image-display-name-help" class="muted">Prérempli avec le nom du prospect. Il apparaît en haut de l’image, à côté du logo si tu en sélectionnes un.</p>
-      <label>Message publicitaire<textarea name="message" required maxlength="220" rows="3"></textarea></label>
-      <button type="button" id="image-message" class="secondary">Générer le message avec OpenAI</button>
+      <fieldset>
+        <legend>Informations à afficher sur le flyer</legend>
+        <p class="muted">Ces champs sont préremplis depuis la fiche prospect. Modifiez-les ou videz-les pour cette création.</p>
+        <label for="image-display-name">Nom</label>
+        <input id="image-display-name" name="display_name" maxlength="255">
+        <label for="image-activity">Métier</label>
+        <input id="image-activity" name="activity" maxlength="120">
+        <label for="image-phone">Téléphone</label>
+        <input id="image-phone" name="phone" type="tel" maxlength="80">
+        <label for="image-address">Adresse</label>
+        <input id="image-address" name="address" maxlength="300">
+        <label for="image-website">Site web</label>
+        <input id="image-website" name="website" inputmode="url" maxlength="300">
+      </fieldset>
+      <label for="image-headline">Accroche publicitaire (facultative)</label>
+      <textarea id="image-headline" name="message" maxlength="220" rows="2"></textarea>
+      <button type="button" id="image-message" class="secondary">Proposer une accroche avec OpenAI</button>
+      <div id="image-headline-placement" hidden>
+        <label for="image-position">Placement de l’accroche</label>
+        <select id="image-position" name="position">
+          <option value="auto">Automatique</option>
+          <option value="top">En haut du visuel</option>
+          <option value="bottom">En bas du visuel</option>
+          <option value="left">À gauche</option>
+          <option value="right">À droite</option>
+          <option value="center">Au centre</option>
+        </select>
+      </div>
       <details><summary>Instructions client</summary>
         <label>Objectif<input name="objective" maxlength="300"></label>
         <label>Ambiance<input name="mood" maxlength="300"></label>
@@ -47,8 +71,8 @@
         <div class="prospect-media-grid" id="image-references"></div>
         <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
         <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"
-                  aria-describedby="image-operator-help" placeholder="Ex. Placer le produit à droite et laisser de l’espace à gauche pour le texte."></textarea>
-        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le fond généré. En Photo réelle, elle est conservée comme note de projet.</p>
+                  aria-describedby="image-operator-help" placeholder="Ex. Photographier le produit en lumière naturelle. Accroche : en haut."></textarea>
+        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le visuel. En placement automatique, « Accroche : en haut » ou « Accroche : à gauche » place aussi le texte sur le flyer.</p>
       </details>
       <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
       <button id="image-render">Composer et enregistrer</button>

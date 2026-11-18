@@ -4,6 +4,11 @@
 
 Les photos Google déjà disponibles sont affichées avec l’attribution. Ajoutez celle à réutiliser à la bibliothèque pour en conserver une copie avec sa provenance et son attribution. Une URL Google expirée peut nécessiter une actualisation des données Google du prospect.
 
+
+## Composition d’un flyer Image Ads
+
+La création IA propose le type Flyer par défaut. Le rendu PNG utilise le nom affiché, le métier et les coordonnées disponibles sur la fiche prospect. L’accroche est facultative. Son placement peut être choisi dans le studio ou précisé en mode Automatique, par exemple « Accroche : en haut » ou « Accroche : à gauche ». Le style visuel agit sur la palette et la typographie de l’annonce et guide aussi le fond en Création IA. OpenAI crée le visuel principal, puis ProfileFinder compose les textes et le logo localement.
+
 ## Studios
 
 - **Audio Ads** remplace le libellé Ads. Les URL `/ads` et les anciennes API continuent à servir. Les médias sélectionnés comme contexte alimentent le message via leurs intitulés, catégories et formats. Les pistes choisies comme voix et musique sont vérifiées et chargées côté serveur pour le mixage, puis les sélections sont enregistrées avec le spot.
