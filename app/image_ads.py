@@ -89,7 +89,7 @@ class Composition(BaseModel):
     avoid: str = Field('', max_length=300)
     operator_instruction: str = Field('', max_length=1500)
     media_ids: list[str] = Field(default_factory=list, max_length=4)
-    design_reference_ids: list[str] = Field(default_factory=list, max_length=4)
+    design_reference_ids: list[str] = Field(default_factory=list, max_length=1)
     logo_id: str | None = None
     position: str = 'auto'
     fit: str = 'contain'

@@ -5,6 +5,7 @@
   let projectId = '';
   let pending = false;
   let prospectFields = {};
+  let designReference = null;
   const activeJobs = ['queued', 'running'];
   let currentProject = null;
   let previewTimer;
@@ -86,7 +87,7 @@
   const report = message => { $('status').textContent = message; };
   const payload = () => ({...Object.fromEntries(new FormData(form)),
     contact_icons: $('contact-icons').checked,
-    design_reference_ids: $('mode').value === 'ai' ? ProspectMedia.values($('design-saved')) : [],
+    design_reference_ids: $('mode').value === 'ai' && designReference ? [designReference.id] : [],
     media_ids: ProspectMedia.values($('references')), logo_id: ProspectMedia.values($('logo'))[0] || null});
   function syncImageStyle() {
     const realPhoto = $('mode').value !== 'ai';
@@ -113,26 +114,53 @@
     return card;
   }
 
-  async function showDesignLibrary(ids = []) {
+  function setDesignReference(item) {
+    designReference = item;
+    $('design-choice').hidden = !item;
+    $('design-selected').replaceChildren();
+    if (item) $('design-selected').append(referenceCard(item, item.url));
+  }
+
+  function referenceOption(item, url, saved = item) {
+    const card = referenceCard(item, url);
+    if (!saved) return card;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary';
+    button.textContent = 'Choisir cette référence';
+    button.setAttribute('aria-label', 'Choisir « ' + item.title + ' » comme référence');
+    button.onclick = () => {
+      if (!designReference && ProspectMedia.values($('references')).length >= 4) {
+        designNotice('Libérez une place parmi les médias du prospect avant d’ajouter cette référence.');
+        return;
+      }
+      setDesignReference(saved);
+      $('design-library-panel').open = $('design-results-panel').open = false;
+      $('design-remove').focus();
+      designNotice('');
+      schedulePreview();
+    };
+    card.append(button);
+    return card;
+  }
+
+  $('design-remove').onclick = () => {
+    setDesignReference(null);
+    $('design-query').focus();
+    schedulePreview();
+  };
+
+  async function showDesignLibrary(selectedId) {
     const revision = epoch;
     const {references, search_available: canSearch} = await ProspectMedia.request(designApi);
-    if (revision !== epoch) return;
+    if (revision !== epoch) return null;
     $('design-search').disabled = $('design-query').disabled = !canSearch;
     if (!canSearch) designNotice('Recherche indisponible. Définissez SERPAPI_API_KEY sur le serveur.');
-    $('design-saved').replaceChildren();
-    for (const item of references) {
-      const card = referenceCard(item, item.url);
-      const label = document.createElement('label');
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.value = item.id;
-      input.setAttribute('aria-label', 'Utiliser « ' + item.title + ' » comme référence');
-      input.checked = ids.includes(item.id);
-      label.append(input, ' Utiliser comme référence');
-      card.append(label);
-      $('design-saved').append(card);
-    }
+    $('design-saved').replaceChildren(...references.map(item => referenceOption(item, item.url)));
     if (!references.length) $('design-saved').textContent = 'Aucune référence enregistrée.';
+    const byId = new Map(references.map(item => [item.id, item]));
+    setDesignReference(byId.get(selectedId ?? designReference?.id) || null);
+    return byId;
   }
 
   async function searchDesigns() {
@@ -145,11 +173,14 @@
     $('design-search').disabled = true;
     designNotice('Recherche en cours…');
     $('design-results').replaceChildren();
+    $('design-results-panel').hidden = true;
     try {
       const {results, batch_id: batchId} = await ProspectMedia.request(
         designApi + '/search?' + new URLSearchParams({q: query}));
       if (revision !== epoch) return;
-      for (const item of results) $('design-results').append(referenceCard(item, item.thumbnail));
+      $('design-results-panel').hidden = !results.length;
+      $('design-results-panel').open = !!results.length;
+      $('design-results').replaceChildren(...results.map(item => referenceCard(item, item.thumbnail)));
       if (!batchId) {
         designNotice('Aucune image trouvée.');
         return;
@@ -159,8 +190,12 @@
         const batch = await ProspectMedia.request(designApi + '/imports/' + batchId);
         if (revision !== epoch) return;
         if (batch.status === 'completed') {
-          await showDesignLibrary(ProspectMedia.values($('design-saved')));
-          if (revision !== epoch) return;
+          const saved = await showDesignLibrary();
+          if (revision !== epoch || !saved) return;
+          $('design-results').replaceChildren(...results.map(item => {
+            const reference = saved.get(item.id);
+            return referenceOption(item, item.thumbnail || reference?.url, reference || null);
+          }));
           const unavailable = batch.unavailable ? ' · ' + batch.unavailable + ' indisponibles' : '';
           designNotice(batch.saved + ' références disponibles dans la bibliothèque' + unavailable + '.');
           return;
@@ -233,6 +268,9 @@
     showVersions(null);
     $('preview-status').textContent = '';
     $('design-results').replaceChildren();
+    $('design-results-panel').hidden = true;
+    $('design-library-panel').open = false;
+    setDesignReference(null);
     $('design-saved').replaceChildren();
     designNotice('');
     form.reset();
@@ -263,7 +301,7 @@
       syncImageStyle();
       syncHeadlinePlacement();
       await Promise.all([
-        showDesignLibrary(options.design_reference_ids).catch(error => {
+        showDesignLibrary(options.design_reference_ids?.[0]).catch(error => {
           if (revision === epoch) designNotice(error.message);
         }),
         ProspectMedia.mount($('references'), $('lead').value, {types: ['image'], distinct: true, ids: project?.options.media_ids}),

@@ -84,10 +84,20 @@
             <button type="button" id="image-design-search" class="secondary">Rechercher</button>
           </div>
           <p id="image-design-status" class="muted" role="status"></p>
-          <div id="image-design-results" class="prospect-media-grid"></div>
-          <h4>Bibliothèque de références partagée</h4>
-          <p class="muted">Les résultats de recherche sont enregistrés automatiquement et peuvent être réutilisés pour d’autres prospects. Sélectionnez au maximum quatre images en comptant les médias du prospect.</p>
-          <div id="image-design-saved" class="prospect-media-grid"></div>
+          <section id="image-design-choice" hidden aria-label="Référence de design utilisée">
+            <h4>Référence utilisée dans ce flyer</h4>
+            <div id="image-design-selected" class="prospect-media-grid"></div>
+            <button type="button" id="image-design-remove" class="secondary">Retirer la référence</button>
+          </section>
+          <details id="image-design-results-panel" hidden>
+            <summary>Résultats de la recherche</summary>
+            <div id="image-design-results" class="prospect-media-grid"></div>
+          </details>
+          <details id="image-design-library-panel">
+            <summary>Bibliothèque de références partagée</summary>
+            <p class="muted">Les résultats de recherche sont enregistrés automatiquement et peuvent être réutilisés pour d’autres prospects. Choisissez une seule référence de design pour ce flyer.</p>
+            <div id="image-design-saved" class="prospect-media-grid"></div>
+          </details>
         </section>
         <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
         <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"

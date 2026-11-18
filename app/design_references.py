@@ -140,7 +140,10 @@ def search(q: str = Query(min_length=2, max_length=150), db: Session = Depends(g
         source = web_url(item.get('link')) or original
         result = {'title': title, 'source_url': source, 'original': original, 'thumbnail': thumbnail}
         to_import.append(result)
-        output.append({'title': title, 'source_url': source, 'thumbnail': thumbnail, 'token': result_token(result, key)})
+        output.append({
+            'id': reference_id(result), 'title': title, 'source_url': source,
+            'thumbnail': thumbnail, 'token': result_token(result, key),
+        })
     batch_id = None
     if to_import:
         batch_id = uuid4().hex
