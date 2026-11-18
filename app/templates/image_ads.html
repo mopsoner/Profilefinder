@@ -50,6 +50,7 @@
         <input id="image-address" name="address" maxlength="300">
         <label for="image-website">Site web</label>
         <input id="image-website" name="website" inputmode="url" maxlength="300">
+        <label class="image-checkbox"><input id="image-contact-icons" name="contact_icons" type="checkbox" value="true" checked> Pictogrammes de contact</label>
       </fieldset>
       <label for="image-headline">Accroche publicitaire (facultative)</label>
       <textarea id="image-headline" name="message" maxlength="220" rows="2"></textarea>
@@ -78,15 +79,17 @@
         <label for="image-operator-instruction">Instruction opérateur (facultative)</label>
         <textarea id="image-operator-instruction" name="operator_instruction" rows="3" maxlength="1500"
                   aria-describedby="image-operator-help" placeholder="Ex. Photographier le produit en lumière naturelle. Accroche : en haut."></textarea>
-        <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le visuel. Une retouche IA utilise le fond précédent comme référence. Vous pouvez aussi joindre le flyer complet. En placement automatique, « Accroche : en haut » ou « Accroche : à gauche » place aussi le texte sur le flyer.</p>
+        <p id="image-operator-help" class="muted">Pour appliquer l’instruction à l’ensemble du flyer, utilisez « Générer le flyer complet avec l’IA ». L’action « Modifier le fond avec l’IA » applique les consignes visuelles au fond, puis le studio compose les textes.</p>
       </details>
       <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
-      <label id="image-reference-option" hidden><input id="image-use-flyer" type="checkbox"> Joindre aussi le flyer complet précédent à OpenAI</label>
+      <label id="image-reference-option" hidden><input id="image-use-flyer" type="checkbox"> Joindre le flyer précédent à OpenAI comme référence</label>
       <div class="image-studio-actions">
         <button id="image-render" type="submit" value="local">Retoucher le flyer</button>
-        <button id="image-ai-render" type="submit" value="ai">Modifier le visuel avec l’IA</button>
+        <button id="image-full-render" type="submit" value="full">Générer le flyer complet avec l’IA</button>
+        <button id="image-ai-render" type="submit" value="ai" class="secondary">Modifier le fond avec l’IA</button>
         <button id="image-variant" type="submit" value="variant" class="secondary" title="Crée un projet séparé et génère un nouveau visuel en mode IA" hidden>Créer une variante</button>
       </div>
+      <p id="image-full-help" class="muted" hidden>Le flyer complet est généré en une seule image. Vérifiez les textes et le logo avant diffusion.</p>
     </form>
     <section class="panel">
       <h2>Aperçu</h2>

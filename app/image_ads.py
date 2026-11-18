@@ -68,8 +68,9 @@ FLYER_PALETTES = {
 
 class Composition(BaseModel):
     mode: str
-    action: Literal['auto', 'local', 'ai', 'variant'] = 'auto'
+    action: Literal['auto', 'local', 'ai', 'variant', 'full', 'full_variant'] = 'auto'
     use_previous_flyer: bool = False
+    contact_icons: bool | None = None
     layout: Literal['commercial', 'editorial', 'promotion'] = 'commercial'
     format: str
     message: str = Field('', max_length=220)
@@ -117,7 +118,8 @@ def identity_for(db, lead):
     return homepage_identity(lead.website)
 
 
-def generate_background(prompt, format_name, refs, *, previous_background=None, previous_flyer=None):
+def generate_background(prompt, format_name, refs, *, previous_background=None, previous_flyer=None,
+                        complete_flyer=False, flyer_logo=None):
     cfg = settings()
     if not cfg.openai_api_key:
         raise ValueError('Configurez la clé OpenAI pour la création IA.')
@@ -134,9 +136,16 @@ def generate_background(prompt, format_name, refs, *, previous_background=None, 
             '\nLa première image est le fond de la version précédente. Utilise-le comme référence principale '
             'pour la retouche, conserve les éléments compatibles et applique les nouvelles consignes en priorité.'
         )
+    if flyer_logo:
+        files.append(('image[]', ('logo-fourni.png', flyer_logo, 'image/png')))
+        options['prompt'] += '\nUtilise le logo fourni avec fidélité, sans le redessiner ni en inventer un autre.'
     if previous_flyer:
         files.append(('image[]', ('flyer-precedent.png', previous_flyer, 'image/png')))
         options['prompt'] += (
+            '\nLa dernière image jointe est une ancienne version du flyer. '
+            'Utilise-la comme référence de direction artistique. Les nouvelles consignes et les textes '
+            'exacts du formulaire priment sur son contenu. Omet toute ancienne information absente du formulaire.'
+            if complete_flyer else
             '\nLa dernière image jointe est la version précédente du flyer. '
             'Utilise son visuel comme point de départ, conserve les éléments graphiques compatibles '
             'et applique les nouvelles consignes en priorité. Ne reproduis aucun texte, numéro, '
@@ -196,6 +205,23 @@ def headline_position(options):
     return placements[match[1]] if match else 'bottom'
 
 
+def draw_contact_icon(draw, field, x, y, size, accent, panel):
+    stroke = max(2, size // 10)
+    if field == 'phone':
+        draw.rounded_rectangle((x + size // 5, y, x + 4 * size // 5, y + size),
+                               radius=size // 7, outline=accent, width=stroke)
+        draw.line((x + 2 * size // 5, y + 4 * size // 5, x + 3 * size // 5, y + 4 * size // 5),
+                  fill=accent, width=stroke)
+    else:
+        left, middle, right = x + size // 8, x + size // 2, x + 7 * size // 8
+        draw.polygon(((left + stroke, y + size // 2), (right - stroke, y + size // 2), (middle, y + size)),
+                     fill=accent)
+        draw.ellipse((left, y, right, y + 3 * size // 4), fill=accent)
+        hole = size // 8
+        center_y = y + 3 * size // 8
+        draw.ellipse((middle - hole, center_y - hole, middle + hole, center_y + hole), fill=panel)
+
+
 def compose(background, logo, options):
     width, height = FORMATS[options['format']]
     unit = min(width, height)
@@ -228,15 +254,28 @@ def compose(background, logo, options):
                             activity_text, font=activity_font, fill=accent, spacing=6)
 
     business = options.get('business', {})
-    contacts = '\n'.join(value for value in
-                         (business.get('phone'), business.get('address'), business.get('website')) if value)
+    contacts = [(field, business[field]) for field in ('phone', 'address', 'website') if business.get(field)]
     footer_top = height - margin // 2
     if contacts:
-        contact, contact_font, contact_bounds = fit_flyer_text(
-            draw, contacts, body_font, round(unit * .027), width - 2 * margin, height // 5)
-        footer_top = height - margin - (contact_bounds[3] - contact_bounds[1]) - margin // 2
-        draw.multiline_text((margin, footer_top + margin // 2 - contact_bounds[1]),
-                            contact, font=contact_font, fill=ink, spacing=6)
+        icon_fields = ('phone', 'address') if options.get('contact_icons') else ()
+        icon_size = round(unit * .025)
+        icon_indent = icon_size + margin // 6
+        line_gap = unit // 140
+        rows = []
+        for field, value in contacts:
+            indent = icon_indent if field in icon_fields else 0
+            text, font, bounds = fit_flyer_text(
+                draw, value, body_font, round(unit * .027), width - 2 * margin - indent,
+                max(20, (height // 5) // len(contacts)))
+            rows.append((field, indent, text, font, bounds, max(icon_size, bounds[3] - bounds[1])))
+        footer_height = sum(row[-1] for row in rows) + line_gap * (len(rows) - 1)
+        footer_top = height - margin - footer_height - margin // 2
+        y = footer_top + margin // 2
+        for field, indent, text, font, bounds, row_height in rows:
+            if indent:
+                draw_contact_icon(draw, field, margin, y + (row_height - icon_size) // 2, icon_size, accent, panel)
+            draw.multiline_text((margin + indent, y - bounds[1]), text, font=font, fill=ink, spacing=6)
+            y += row_height + line_gap
 
     photo = image_from_bytes(background)
     layout = options.get('layout', 'commercial')
@@ -278,6 +317,60 @@ def compose(background, logo, options):
     return output.getvalue()
 
 
+def image_art_direction(options):
+    direction = {}
+    for field, choices in (('image_style', IMAGE_STYLES), ('visual_style', VISUAL_STYLES)):
+        if style := options.get(field):
+            label, description = choices[style]
+            direction[field] = {'type': label, 'direction': description}
+    return direction
+
+
+def compose_full_flyer(options, refs, logo, previous_flyer):
+    width, height = FORMATS[options['format']]
+    brief = {
+        'format final': f'{width} × {height}',
+        'mise en page': options['layout'],
+        'position demandée par le formulaire': options['position'],
+        'identité visuelle du prospect': options['identity'],
+        'direction artistique': image_art_direction(options),
+        'brief client': {field: options[field] for field in ('objective', 'mood', 'colors', 'emphasize', 'avoid')},
+        'instruction opérateur': options.get('operator_instruction', ''),
+        'textes exacts à imprimer': {
+            'nom': options['display_name'], 'accroche': options['message'].strip(),
+            **options['business'],
+        },
+    }
+    if options.get('contact_icons'):
+        brief['pictogrammes de contact'] = {
+            'à placer juste à côté du champ correspondant': [
+                label for field, label in (('phone', 'téléphone'), ('address', 'localisation'))
+                if options['business'].get(field)
+            ],
+            'aucun pictogramme pour un champ vide': True,
+        }
+    prompt = (
+        'Tu es un designer graphique senior. Crée le flyer publicitaire COMPLET et final, '
+        'prêt à être diffusé. Compose le visuel, le logo fourni et les textes ensemble. '
+        'Applique l’instruction opérateur à toute la composition, y compris la position, '
+        'la typographie et les relations entre éléments. Les exemples de mise en page du formulaire '
+        'sont des indications de départ. Lorsqu’une consigne vise une donnée précise, '
+        'place l’élément demandé au contact de cette donnée dans le même groupe visuel. '
+        'Recopie exactement les textes fournis. Omet les champs vides et n’invente aucune '
+        'coordonnée ni affirmation commerciale. Utilise des marges généreuses pour garder tous '
+        'les éléments à l’intérieur de l’image. Ne produis ni mockup ni texte explicatif.\n'
+        + json.dumps(brief, ensure_ascii=False)
+    )
+    result = generate_background(prompt, options['format'], refs, previous_flyer=previous_flyer,
+                                 complete_flyer=True, flyer_logo=logo)
+    image = image_from_bytes(result).convert('RGB')
+    edge_color = image.getpixel((0, 0))
+    export = ImageOps.pad(image, (width, height), method=Image.Resampling.LANCZOS, color=edge_color)
+    output = io.BytesIO()
+    export.save(output, 'PNG')
+    return output.getvalue()
+
+
 def run_image_job(identifier, task_id):
     try:
         with SessionLocal() as db:
@@ -292,50 +385,57 @@ def run_image_job(identifier, task_id):
             action = operation.get('action', 'auto')
             refs = [media.content for media in selected_media(db, lead.id, options['media_ids'], ('image',))]
             logo = selected_media(db, lead.id, [options['logo_id']], ('image',))[0].content if options['logo_id'] else None
-            if options['mode'] == 'ai':
-                brief = {'entreprise': lead.name, 'activité': lead.business_type,
-                         'site': lead.website, 'identité': options['identity'],
-                         **{key: options[key] for key in ('objective', 'mood', 'colors', 'emphasize', 'avoid')}}
-                if style := options.get('image_style'):
-                    label, direction = IMAGE_STYLES[style]
-                    brief['type d’image'] = label
-                    brief['direction visuelle du type'] = direction
-                if style := options.get('visual_style'):
-                    label, direction = VISUAL_STYLES[style]
-                    brief['style visuel'] = label
-                    brief['direction artistique du style'] = direction
-                if instruction := options.get('operator_instruction'):
-                    brief['instruction opérateur pour le fond'] = instruction
-                prompt = json.dumps(brief, ensure_ascii=False, sort_keys=True)
-                prompt = ('Agis comme un directeur artistique et designer graphique senior. Crée le visuel '
-                          'principal d’un support publicitaire professionnel en suivant le brief. '
-                          'Compose une image équilibrée avec un sujet identifiable, des marges de sécurité '
-                          'et des zones calmes qui permettent d’ajouter une accroche. Respecte les références '
-                          'et évite les détails parasites. Le studio ajoute séparément le nom, le métier, '
-                          'les coordonnées et le logo. Aucun texte, logo, cadre ni filigrane dans le visuel.\n' + prompt)
-                key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
-                                                settings().openai_image_model]).encode()).hexdigest()
-                if action != 'local' and (action in ('ai', 'variant') or row.background_key != key or not row.background):
-                    task.stage, task.total_found = 'Génération du fond OpenAI', 25
-                    db.commit()
-                    source = row
-                    if operation.get('source_version'):
-                        source = owned_version(db, owned_image(db, lead.id, operation['source']),
-                                               operation['source_version'])
-                    previous_flyer = source.png if operation.get('use_previous_flyer') else None
-                    row.background = generate_background(
-                        prompt, options['format'], refs,
-                        previous_background=source.background, previous_flyer=previous_flyer)
-                    row.background_key = key
-                background = row.background
-            else:
-                background = refs[0]
-            task.stage, task.total_found = 'Composition du flyer et des coordonnées', 75
-            db.commit()
-            row.png = compose(background, logo, options)
-            if options['mode'] == 'photo':
+            source = row
+            if operation.get('source_version'):
+                source = owned_version(db, owned_image(db, lead.id, operation['source']),
+                                       operation['source_version'])
+            previous_flyer = source.png if operation.get('use_previous_flyer') else None
+            if action in ('full', 'full_variant'):
+                task.stage, task.total_found = 'Création IA du flyer complet', 25
+                db.commit()
+                row.png = compose_full_flyer(options, refs, logo, previous_flyer)
                 row.background = None
                 row.background_key = None
+            else:
+                if options['mode'] == 'ai':
+                    brief = {'entreprise': lead.name, 'activité': lead.business_type,
+                             'site': lead.website, 'identité': options['identity'],
+                             **{key: options[key] for key in ('objective', 'mood', 'colors', 'emphasize', 'avoid')}}
+                    if style := options.get('image_style'):
+                        label, direction = IMAGE_STYLES[style]
+                        brief['type d’image'] = label
+                        brief['direction visuelle du type'] = direction
+                    if style := options.get('visual_style'):
+                        label, direction = VISUAL_STYLES[style]
+                        brief['style visuel'] = label
+                        brief['direction artistique du style'] = direction
+                    if instruction := options.get('operator_instruction'):
+                        brief['instruction opérateur pour le fond'] = instruction
+                    prompt = json.dumps(brief, ensure_ascii=False, sort_keys=True)
+                    prompt = ('Agis comme un directeur artistique et designer graphique senior. Crée le visuel '
+                              'principal d’un support publicitaire professionnel en suivant le brief. '
+                              'Compose une image équilibrée avec un sujet identifiable, des marges de sécurité '
+                              'et des zones calmes qui permettent d’ajouter une accroche. Respecte les références '
+                              'et évite les détails parasites. Le studio ajoute séparément le nom, le métier, '
+                              'les coordonnées et le logo. Aucun texte, logo, cadre, filigrane ni pictogramme de coordonnées dans le visuel.\n' + prompt)
+                    key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
+                                                    settings().openai_image_model]).encode()).hexdigest()
+                    if action != 'local' and (action in ('ai', 'variant') or row.background_key != key or not row.background):
+                        task.stage, task.total_found = 'Génération du fond OpenAI', 25
+                        db.commit()
+                        row.background = generate_background(
+                            prompt, options['format'], refs,
+                            previous_background=source.background, previous_flyer=previous_flyer)
+                        row.background_key = key
+                    background = row.background
+                else:
+                    background = refs[0]
+                task.stage, task.total_found = 'Composition du flyer et des coordonnées', 75
+                db.commit()
+                row.png = compose(background, logo, options)
+                if options['mode'] == 'photo':
+                    row.background = None
+                    row.background_key = None
             snapshot_version(db, row)
             finish_task(task)
             db.commit()
@@ -507,6 +607,8 @@ def prepare_composition(db, lead_id, composition, identifier):
     ):
         raise HTTPException(400, 'Mode, format ou composition invalide. Utilisez cinq lignes de texte au maximum.')
     selected_media(db, lead_id, composition.media_ids, ('image',), limit=4)
+    if composition.action in ('full', 'full_variant') and composition.mode != 'ai':
+        raise HTTPException(400, 'Le flyer complet nécessite le mode Création IA.')
     if composition.mode == 'photo' and len(composition.media_ids) != 1:
         raise HTTPException(400, 'Sélectionnez une photo pour le mode Photo réelle.')
     if composition.logo_id and composition.logo_id in composition.media_ids:
@@ -518,7 +620,7 @@ def prepare_composition(db, lead_id, composition, identifier):
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
     saved_options = json.loads(previous.options_json) if previous else {}
     business = {**flyer_business(lead), **saved_options.get('business', {})}
-    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', 'action', 'use_previous_flyer', *business})
+    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', 'action', 'use_previous_flyer', 'contact_icons', *business})
     name = composition.display_name
     options['display_name'] = saved_options.get('display_name', lead.name) if name is None else ' '.join(name.split())
     for field in business:
@@ -528,6 +630,13 @@ def prepare_composition(db, lead_id, composition, identifier):
     options['business'] = business
     if composition.mode == 'ai':
         options['image_style'] = composition.image_style or 'flyer'
+    if composition.action in ('full', 'full_variant'):
+        options['render_kind'] = 'full'
+    icons = composition.contact_icons
+    if icons is None:
+        icons = saved_options.get('contact_icons', False) if previous else True
+    if icons:
+        options['contact_icons'] = True
     if composition.visual_style:
         options['visual_style'] = composition.visual_style
     if instruction := composition.operator_instruction.strip():
@@ -565,7 +674,7 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
             raise HTTPException(409, 'Un traitement est déjà en cours.')
         if composition.action == 'local' and composition.mode == 'ai' and not (source and source.background):
             raise HTTPException(409, 'Générez un visuel avant de retoucher le flyer.')
-        row = source if source and composition.action != 'variant' else ImageAd(id=uuid4().hex, lead_id=lead_id)
+        row = source if source and composition.action not in ('variant', 'full_variant') else ImageAd(id=uuid4().hex, lead_id=lead_id)
         if row is source:
             latest = db.scalar(select(Job).where(Job.resource_id == identifier, Job.kind == 'image_render')
                                .order_by(Job.id.desc()).limit(1))

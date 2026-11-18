@@ -21,9 +21,9 @@
     const hasPhoto = ProspectMedia.values($('references')).length === 1;
     $('render').disabled = pending || (ai ? !currentProject?.has_background : !hasPhoto);
     $('render').textContent = projectId ? 'Retoucher le flyer' : 'Composer et enregistrer';
-    $('ai-render').hidden = !ai;
-    $('ai-render').disabled = pending;
-    $('ai-render').textContent = currentProject?.png ? 'Modifier le visuel avec l’IA' : 'Générer le visuel avec l’IA';
+    $('full-render').hidden = $('ai-render').hidden = $('full-help').hidden = !ai;
+    $('full-render').disabled = $('ai-render').disabled = pending;
+    $('ai-render').textContent = currentProject?.has_background ? 'Modifier le fond avec l’IA' : 'Générer le fond avec l’IA';
     $('variant').hidden = !currentProject?.png;
     $('variant').disabled = pending || (!ai && !hasPhoto);
     $('reference-option').hidden = !ai || !currentProject?.png;
@@ -85,6 +85,7 @@
   const base = () => '/api/leads/' + Number($('lead').value) + '/image-ads';
   const report = message => { $('status').textContent = message; };
   const payload = () => ({...Object.fromEntries(new FormData(form)),
+    contact_icons: $('contact-icons').checked,
     media_ids: ProspectMedia.values($('references')), logo_id: ProspectMedia.values($('logo'))[0] || null});
   function syncImageStyle() {
     const realPhoto = $('mode').value !== 'ai';
@@ -99,8 +100,14 @@
     const options = payload();
     const hasBackground = options.mode === 'photo' ? options.media_ids.length === 1 : currentProject?.has_background;
     if (!hasBackground) {
-      $('preview-status').textContent = 'Sélectionnez une photo ou générez un visuel pour afficher l’aperçu.';
-      $('preview').hidden = true;
+      if (options.mode === 'ai' && currentProject?.options.render_kind === 'full' && currentProject.png) {
+        $('preview').src = currentProject.png;
+        $('preview').hidden = false;
+        $('preview-status').textContent = 'Dernier flyer enregistré. Régénérez le flyer complet pour appliquer les nouvelles consignes.';
+      } else {
+        $('preview-status').textContent = 'Sélectionnez une photo ou générez un visuel pour afficher l’aperçu.';
+        $('preview').hidden = true;
+      }
       return;
     }
     const revision = epoch;
@@ -155,11 +162,12 @@
       const project = id ? await ProspectMedia.request(base() + '/' + id) : null;
       if (revision !== epoch) return;
       const options = project?.options || {};
-      const fields = {...prospectFields, ...options, ...options.business};
+      const fields = {...prospectFields, contact_icons: !project, ...options, ...options.business};
       for (const [key, value] of Object.entries(fields)) {
         if (['media_ids', 'logo_id', 'identity', 'business'].includes(key)) continue;
         const field = form.elements.namedItem(key);
-        if (field instanceof HTMLElement) field.value = value;
+        if (field === $('contact-icons')) field.checked = value === true;
+        else if (field instanceof HTMLElement) field.value = value;
       }
       syncImageStyle();
       syncHeadlinePlacement();
@@ -279,10 +287,13 @@
     syncActions();
     $('preview').hidden = true;
     $('preview-status').textContent = '';
+    const selectedAction = event.submitter?.value || ($('mode').value === 'ai' ? 'full' : 'local');
+    const action = selectedAction === 'variant' && $('mode').value === 'ai' &&
+      currentProject?.options.render_kind === 'full' ? 'full_variant' : selectedAction;
     report('Enregistrement de la composition…');
     try {
       const data = await ProspectMedia.request(base() + (projectId ? '/' + projectId : ''), ProspectMedia.json({...payload(),
-        action: event.submitter?.value || ($('mode').value === 'ai' ? 'ai' : 'local'),
+        action,
         use_previous_flyer: $('use-flyer').checked}));
       if (revision !== epoch) return;
       history.replaceState(null, '', '?lead_id=' + $('lead').value + '&project_id=' + data.id);
