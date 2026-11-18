@@ -215,10 +215,12 @@ def studio(request: Request, lead_id: int | None = None, project_id: str = '', d
 @router.get('/api/leads/{lead_id}/image-ads')
 def list_images(lead_id: int, db: Session = Depends(get_db)):
     lead = require_lead(db, lead_id)
-    rows = db.execute(select(ImageAd.id, ImageAd.created_at).where(ImageAd.lead_id == lead_id)
+    rows = db.execute(select(ImageAd.id, ImageAd.created_at, ImageAd.png.is_not(None).label('has_png')).where(ImageAd.lead_id == lead_id)
                       .order_by(ImageAd.created_at.desc())).all()
     return {'name': lead.name, 'website': lead.website, 'identity': identity_for(db, lead),
-            'projects': [{'id': row.id, 'created_at': row.created_at} for row in rows]}
+            'projects': [{'id': row.id, 'created_at': row.created_at,
+                          'png': f'/api/leads/{lead_id}/image-ads/{row.id}/png' if row.has_png else None}
+                         for row in rows]}
 
 
 @router.post('/api/leads/{lead_id}/image-ads/message')

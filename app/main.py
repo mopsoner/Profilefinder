@@ -457,7 +457,11 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     audios=db.scalars(select(AudioAd).where(AudioAd.lead_id==lead_id).order_by(AudioAd.created_at.desc())).all()
     videos=db.scalars(select(VideoAd).where(VideoAd.lead_id==lead_id).order_by(VideoAd.created_at.desc())).all()
     website=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
-    images=db.execute(select(ImageAd.id, ImageAd.created_at).where(ImageAd.lead_id==lead_id).order_by(ImageAd.created_at.desc())).all()
+    images=db.execute(
+        select(ImageAd.id, ImageAd.created_at, ImageAd.png.is_not(None).label("has_png"))
+        .where(ImageAd.lead_id==lead_id)
+        .order_by(ImageAd.created_at.desc(), ImageAd.id)
+    ).all()
     return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews,"audios":audios,"videos":videos,"website":website,"images":images,"categories":CATEGORIES,"lead_id":lead_id,"creative_jobs":[job_payload(row,{lead.id:lead}) for row in jobs if row.kind in ("image_render","image_copy")]})
 
 @app.get("/sites",response_class=HTMLResponse)
