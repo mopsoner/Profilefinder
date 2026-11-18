@@ -101,11 +101,12 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     assert first.status_code == 202
     identifier = first.json()['id']
     project = wait(client, identifier)
+    assert project['options']['display_name'] == 'Alpha'
     assert client.get(project['png'].replace('/1/', '/2/')).status_code == 404
     output = client.get(project['png'] + '?download=true')
     image = Image.open(io.BytesIO(output.content))
     assert image.size == (1080, 1920)
-    assert image.getpixel((100, 80)) == (0, 255, 0)
+    assert image.getpixel((110, 110)) == (0, 255, 0)
     assert image.getpixel((540, 960)) == (255, 99, 71)
     assert 'attachment' in output.headers['content-disposition']
 
@@ -127,11 +128,18 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     wait(client, identifier)
     assert calls[0][0].endswith('/edits')
     assert calls[0][1]['files'][0][1][1] == media.validate(png())[1]
+    previous_png = client.get(wait(client, identifier)['png']).content
+    options.update(display_name='Atelier Alpha')
+    assert client.post(path, json=options).status_code == 202
+    renamed = wait(client, identifier)
+    assert renamed['options']['display_name'] == 'Atelier Alpha'
+    assert client.get(renamed['png']).content != previous_png
+    assert len(calls) == 1
     options.update(message='Autre message', position='top')
     assert client.post(path, json=options).status_code == 202
     project = wait(client, identifier)
     assert len(calls) == 1
-    assert len(project['jobs']) == 3
+    assert len(project['jobs']) == 4
     instruction = 'Privilégier un cadrage serré sur le produit.'
     options['operator_instruction'] = instruction
     assert client.post(path, json=options).status_code == 202
@@ -142,6 +150,27 @@ def test_real_image_and_image_ai_reuse_background(studio, monkeypatch):
     options['operator_instruction'] = '  ' + instruction + '  '
     assert client.post(path, json=options).json()['job_id'] == project['jobs'][0]['id']
     assert len(calls) == 2
+    for style in ('flyer', 'poster'):
+        options['image_style'] = style
+        assert client.post(path, json=options).status_code == 202
+        project = wait(client, identifier)
+        assert project['options']['image_style'] == style
+        label, direction = image_ads.IMAGE_STYLES[style]
+        assert label in calls[-1][1]['data']['prompt']
+        assert direction in calls[-1][1]['data']['prompt']
+    assert len(calls) == 4
+    assert client.post(path, json={**options, 'image_style': 'unknown'}).status_code == 422
+    assert 'style visuel' not in calls[-1][1]['data']['prompt']
+    options['visual_style'] = 'minimalist'
+    options.pop('position')
+    assert client.post(path, json=options).status_code == 202
+    project = wait(client, identifier)
+    assert project['options']['visual_style'] == 'minimalist'
+    assert project['options']['position'] == 'top'
+    label, direction = image_ads.VISUAL_STYLES['minimalist']
+    assert label in calls[-1][1]['data']['prompt']
+    assert direction in calls[-1][1]['data']['prompt']
+    assert len(calls) == 5
     with sessions() as db:
         jobs = activity_feed(db)
         assert all(job['result_url'].endswith(identifier) for job in jobs if job['kind'] == 'image_render')

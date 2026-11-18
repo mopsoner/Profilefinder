@@ -15,9 +15,24 @@
   <div class="image-studio">
     <form id="image-form" class="panel">
       <label for="image-mode">Mode</label><select id="image-mode" name="mode"><option value="photo">Photo réelle</option><option value="ai">Création IA</option></select>
+      <div id="image-style-field" hidden>
+        <label for="image-style">Type d’image à générer</label>
+        <select id="image-style" name="image_style" disabled>
+          <option value="">Automatique</option>
+          {% for value, style in image_styles.items() %}<option value="{{value}}">{{style[0]}}</option>{% endfor %}
+        </select>
+        <label for="image-visual-style">Style visuel (facultatif)</label>
+        <select id="image-visual-style" name="visual_style" disabled>
+          <option value=""></option>
+          {% for value, style in visual_styles.items() %}<option value="{{value}}">{{style[0]}}</option>{% endfor %}
+        </select>
+      </div>
       <label for="image-format">Format</label><select id="image-format" name="format">
         {% for value, size in formats.items() %}<option value="{{value}}">{{{'square':'Carré','portrait':'Portrait','story':'Story','landscape':'Paysage'}[value]}} · {{size[0]}} × {{size[1]}}</option>{% endfor %}
       </select>
+      <label for="image-display-name">Nom affiché sur l’image</label>
+      <input id="image-display-name" name="display_name" maxlength="255" required aria-describedby="image-display-name-help">
+      <p id="image-display-name-help" class="muted">Prérempli avec le nom du prospect. Il apparaît en haut de l’image, à côté du logo si tu en sélectionnes un.</p>
       <label>Message publicitaire<textarea name="message" required maxlength="220" rows="3"></textarea></label>
       <button type="button" id="image-message" class="secondary">Générer le message avec OpenAI</button>
       <details><summary>Instructions client</summary>
@@ -36,12 +51,6 @@
         <p id="image-operator-help" class="muted">En Création IA, cette instruction guide le fond généré. En Photo réelle, elle est conservée comme note de projet.</p>
       </details>
       <details><summary>Logo à superposer</summary><div class="prospect-media-grid" id="image-logo"></div></details>
-      <details><summary>Ajustements</summary>
-        <label>Placement<select name="position"><option value="bottom">Bas</option><option value="center">Centre</option><option value="top">Haut</option></select></label>
-        <label>Alignement<select name="alignment"><option value="left">Gauche</option><option value="center">Centre</option></select></label>
-        <label>Cadrage<select name="fit"><option value="contain">Afficher l’image entière</option><option value="cover">Remplir le cadre</option></select></label>
-        <label>Couleur du texte<input type="color" name="text_color" value="#ffffff"></label>
-      </details>
       <button id="image-render">Composer et enregistrer</button>
     </form>
     <section class="panel">

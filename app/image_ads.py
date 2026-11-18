@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -35,11 +35,31 @@ queue_lock = Lock()
 FORMATS = {'square': (1080, 1080), 'portrait': (1080, 1350),
            'story': (1080, 1920), 'landscape': (1920, 1080)}
 
+IMAGE_STYLES = {
+    'flyer': ('Flyer', 'Composition graphique dynamique avec des zones distinctes pour le titre, les informations et l’appel à l’action.'),
+    'photo': ('Photo', 'Photographie publicitaire réaliste, lumière naturelle ou de studio, sujet principal net et arrière-plan discret.'),
+    'poster': ('Affiche', 'Composition lisible à distance, silhouette dominante, contraste marqué et grand espace pour le titre.'),
+    'ad': ('Annonce publicitaire', 'Création publicitaire centrée sur le produit ou le service, avec un point focal clair et une zone pour l’appel à l’action.'),
+    'social': ('Visuel pour réseaux sociaux', 'Visuel lisible sur mobile, composition simple, sujet fort et éléments essentiels éloignés des bords.'),
+}
+
+VISUAL_STYLES = {
+    'minimalist': ('Minimaliste', 'Palette réduite, lignes épurées et espaces négatifs généreux.'),
+    'editorial': ('Éditorial premium', 'Composition éditoriale soignée, lumière douce et matières raffinées.'),
+    'bold': ('Dynamique et coloré', 'Couleurs franches, contrastes expressifs et composition énergique.'),
+    'natural': ('Naturel et chaleureux', 'Lumière diffuse, couleurs organiques et textures authentiques.'),
+    'retro': ('Rétro', 'Palette vintage, grain subtil et formes graphiques inspirées de l’impression.'),
+    'cinematic': ('Cinématographique', 'Éclairage directionnel, profondeur et étalonnage cinéma.'),
+}
+
 
 class Composition(BaseModel):
     mode: str
     format: str
     message: str = Field(min_length=1, max_length=220)
+    display_name: str = Field('', max_length=255)
+    image_style: str = ''
+    visual_style: str = ''
     objective: str = Field('', max_length=300)
     mood: str = Field('', max_length=300)
     colors: str = Field('', max_length=180)
@@ -52,6 +72,22 @@ class Composition(BaseModel):
     fit: str = 'contain'
     alignment: str = 'left'
     text_color: str = Field('#ffffff', pattern=r'^#[0-9a-fA-F]{6}$')
+
+
+    @field_validator('image_style')
+    @classmethod
+    def validate_image_style(cls, value):
+        if value and value not in IMAGE_STYLES:
+            raise ValueError('Type d’image inconnu.')
+        return value
+
+
+    @field_validator('visual_style')
+    @classmethod
+    def validate_visual_style(cls, value):
+        if value and value not in VISUAL_STYLES:
+            raise ValueError('Style visuel inconnu.')
+        return value
 
 
 def identity_for(db, lead):
@@ -84,6 +120,25 @@ def generate_background(prompt, format_name, refs):
     return raw
 
 
+def wrap_overlay_text(draw, text, font, max_width):
+    lines = []
+    for paragraph in text.splitlines():
+        line = ''
+        for word in paragraph.split():
+            test = f'{line} {word}'.lstrip()
+            if line and draw.textlength(test, font=font) > max_width:
+                lines.append(line)
+                line = ''
+            for char in word:
+                if draw.textlength(line + char, font=font) > max_width:
+                    lines.append(line)
+                    line = ''
+                line += char
+            line += ' '
+        lines.append(line.strip())
+    return '\n'.join(lines)
+
+
 def compose(background, logo, options):
     width, height = FORMATS[options['format']]
     source = image_from_bytes(background)
@@ -92,38 +147,50 @@ def compose(background, logo, options):
              else ImageOps.contain(source, (width, height)))
     canvas.alpha_composite(image, ((width - image.width) // 2, (height - image.height) // 2))
     padding = round(min(width, height) * .065)
-    if logo:
-        brand = image_from_bytes(logo)
-        brand.thumbnail((width // 4, height // 9), Image.Resampling.LANCZOS)
-        canvas.alpha_composite(brand, (padding, padding))
+    brand = image_from_bytes(logo) if logo else None
     overlay = Image.new('RGBA', canvas.size)
     draw = ImageDraw.Draw(overlay)
+    name_bottom = 0
+    name = options.get('display_name', '')
+    if brand:
+        brand.thumbnail((width // 4, height // 9), Image.Resampling.LANCZOS)
+    if name:
+        name_y = padding + padding // 4
+        name_x = padding + padding // 4
+        if brand:
+            name_x += brand.width + padding // 4
+        max_width = width - name_x - padding - padding // 4
+        name_size = round(min(width, height) * .046)
+        while True:
+            name_font = ImageFont.truetype('DejaVuSans-Bold.ttf', name_size)
+            name_text = wrap_overlay_text(draw, name, name_font, max_width)
+            bounds = draw.multiline_textbbox((0, 0), name_text, font=name_font, spacing=5)
+            name_height = bounds[3] - bounds[1]
+            if name_height <= height // 9 or name_size <= 16:
+                break
+            name_size -= 2
+        brand_height = brand.height if brand else 0
+        content_height = max(name_height, brand_height)
+        name_bottom = name_y + content_height + padding // 4
+        draw.rounded_rectangle((padding, padding, name_x + bounds[2] + padding // 4, name_bottom),
+                               radius=20, fill=(14, 19, 33, 225))
+        draw.multiline_text((name_x, name_y + (content_height - name_height) // 2 - bounds[1]),
+                            name_text, font=name_font, spacing=5, fill='white')
+        if brand:
+            overlay.alpha_composite(brand, (padding + padding // 4, name_y + (content_height - brand_height) // 2))
+    elif brand:
+        canvas.alpha_composite(brand, (padding, padding))
     # Pixel-based wrapping keeps even long unbroken words inside the output frame.
     fontsize = round(min(width, height) * .062)
     font = ImageFont.truetype('DejaVuSans-Bold.ttf', fontsize)
-    lines = []
-    for paragraph in options['message'].splitlines():
-        line = ''
-        for word in paragraph.split():
-            test = f'{line} {word}'.lstrip()
-            if line and draw.textlength(test, font=font) > width - 4 * padding:
-                lines.append(line)
-                line = ''
-            for char in word:
-                if draw.textlength(line + char, font=font) > width - 4 * padding:
-                    lines.append(line)
-                    line = ''
-                line += char
-            line += ' '
-        lines.append(line.strip())
-    text = '\n'.join(lines)
+    text = wrap_overlay_text(draw, options['message'], font, width - 4 * padding)
     box = draw.multiline_textbbox((0, 0), text, font=font, spacing=12)
     while box[3] - box[1] > height * .49 and fontsize > 10:
         fontsize -= 3
         font = ImageFont.truetype('DejaVuSans-Bold.ttf', fontsize)
         box = draw.multiline_textbbox((0, 0), text, font=font, spacing=12)
     text_height = box[3] - box[1]
-    y = {'top': max(2 * padding, height // 5), 'center': (height - text_height) // 2,
+    y = {'top': max(2 * padding, height // 5, name_bottom + padding), 'center': (height - text_height) // 2,
          'bottom': height - 2 * padding - text_height}[options['position']]
     draw.rounded_rectangle((padding, y - padding // 2, width - padding,
                             y + text_height + padding // 2), radius=24, fill=(14, 19, 33, 205))
@@ -151,6 +218,14 @@ def run_image_job(identifier, task_id):
                 brief = {'entreprise': lead.name, 'activité': lead.business_type,
                          'site': lead.website, 'identité': options['identity'],
                          **{key: options[key] for key in ('objective', 'mood', 'colors', 'emphasize', 'avoid')}}
+                if style := options.get('image_style'):
+                    label, direction = IMAGE_STYLES[style]
+                    brief['type d’image'] = label
+                    brief['direction visuelle du type'] = direction
+                if style := options.get('visual_style'):
+                    label, direction = VISUAL_STYLES[style]
+                    brief['style visuel'] = label
+                    brief['direction artistique du style'] = direction
                 if instruction := options.get('operator_instruction'):
                     brief['instruction opérateur pour le fond'] = instruction
                 prompt = json.dumps(brief, ensure_ascii=False, sort_keys=True)
@@ -212,7 +287,7 @@ def studio(request: Request, lead_id: int | None = None, project_id: str = '', d
         require_lead(db, lead_id)
     return templates.TemplateResponse(request, 'image_ads.html', {
         'leads': db.execute(select(Lead.id, Lead.name).order_by(Lead.name)).all(),
-        'lead_id': lead_id, 'project_id': project_id, 'formats': FORMATS})
+        'lead_id': lead_id, 'project_id': project_id, 'formats': FORMATS, 'image_styles': IMAGE_STYLES, 'visual_styles': VISUAL_STYLES})
 
 
 @router.get('/api/leads/{lead_id}/image-ads')
@@ -289,7 +364,12 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
         logo, = selected_media(db, lead_id, [composition.logo_id], ('image',))
         if logo.category != 'logo' and not (previous and json.loads(previous.options_json).get('logo_id') == logo.id):
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
-    options = composition.model_dump(exclude={'operator_instruction'})
+    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style'})
+    options['display_name'] = ' '.join(composition.display_name.split()) or lead.name
+    if composition.mode == 'ai' and composition.image_style:
+        options['image_style'] = composition.image_style
+    if composition.mode == 'ai' and composition.visual_style:
+        options['visual_style'] = composition.visual_style
     if instruction := composition.operator_instruction.strip():
         options['operator_instruction'] = instruction
     options['identity'] = json.loads(previous.options_json)['identity'] if previous else identity_for(db, lead)
@@ -297,11 +377,15 @@ def enqueue(lead_id: int, composition: Composition, identifier: str | None = Non
         row = owned_image(db, lead_id, identifier) if identifier else ImageAd(
             id=uuid4().hex, lead_id=lead_id)
         if identifier:
+            previous_options = json.loads(row.options_json)
+            for field in ('position', 'alignment', 'fit', 'text_color'):
+                if field not in composition.model_fields_set and field in previous_options:
+                    options[field] = previous_options[field]
             latest = db.scalar(select(Job).where(Job.resource_id == identifier, Job.kind == 'image_render')
                                .order_by(Job.id.desc()).limit(1))
             if latest and latest.status in ACTIVE:
                 raise HTTPException(409, 'Un traitement est déjà en cours.')
-            if latest and latest.status == 'completed' and json.loads(row.options_json) == options:
+            if latest and latest.status == 'completed' and previous_options == options:
                 return {'id': row.id, 'job_id': latest.id}
         row.options_json = json.dumps(options, ensure_ascii=False)
         db.add(row)

@@ -4,8 +4,9 @@
   let epoch = 0;
   let projectId = '';
   let pending = false;
+  let prospectName = '';
   const activeJobs = ['queued', 'running'];
-  const renderLabel = () => projectId ? 'Enregistrer les ajustements' : 'Composer et enregistrer';
+  const renderLabel = () => projectId ? 'Enregistrer les modifications' : 'Composer et enregistrer';
   function openProject(id) {
     const query = new URLSearchParams({lead_id: $('lead').value});
     if (id) query.set('project_id', id);
@@ -24,11 +25,19 @@
   const report = message => { $('status').textContent = message; };
   const payload = () => ({...Object.fromEntries(new FormData(form)),
     media_ids: ProspectMedia.values($('references')), logo_id: ProspectMedia.values($('logo'))[0] || null});
+  function syncImageStyle() {
+    const realPhoto = $('mode').value !== 'ai';
+    $('style-field').hidden = realPhoto;
+    $('style').disabled = $('visual-style').disabled = realPhoto;
+  }
+  $('mode').addEventListener('change', syncImageStyle);
   async function showProject(id) {
     const revision = ++epoch;
     projectId = id;
     pending = true;
     form.reset();
+    syncImageStyle();
+    form.elements.display_name.value = prospectName;
     $('preview').hidden = $('download').hidden = true;
     $('preview').removeAttribute('src');
     $('download').removeAttribute('href');
@@ -48,6 +57,7 @@
         const field = form.elements.namedItem(key);
         if (field instanceof HTMLElement) field.value = value;
       }
+      syncImageStyle();
       await Promise.all([
         ProspectMedia.mount($('references'), $('lead').value, {types: ['image'], distinct: true, ids: project?.options.media_ids}),
         ProspectMedia.mount($('logo'), $('lead').value, {types: ['image'], logos: true, name: 'logo_id',
@@ -103,6 +113,7 @@
     try {
       const context = await ProspectMedia.request(base());
       if (revision !== epoch) return;
+      prospectName = context.name;
       const colors = Object.values(context.identity.palette || {}).join(', ');
       $('identity').textContent = [context.name, context.website, colors].filter(Boolean).join(' · ');
       for (const project of context.projects) {
