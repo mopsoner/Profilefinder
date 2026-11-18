@@ -125,3 +125,5 @@ html[data-theme="light"] footer,html[data-theme="light"] .footer-dot{color:#5a6b
 .image-version-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .image-version-comparison figure { min-width: 0; margin: 0; }
 .image-version-comparison img { width: 100%; height: 160px; object-fit: contain; }
+
+#image-form .image-checkbox input { width: auto; }

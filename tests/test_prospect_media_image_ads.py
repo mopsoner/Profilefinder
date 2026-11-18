@@ -384,3 +384,70 @@ def test_image_preview_versions_restore_and_variant(studio, monkeypatch):
     assert client.get(variant['png']).content != original
     assert client.get(restored['png']).content == original
     assert calls[-1] == {'previous_background': png('blue'), 'previous_flyer': None}
+
+
+def test_full_flyer_sends_the_complete_brief_and_exports_ia_result(studio, monkeypatch):
+    client, _ = studio
+    calls = []
+    generated = png('blue', (108, 108))
+
+    def fake_image(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+            'data': [{'b64_json': base64.b64encode(generated).decode()}]})
+
+    monkeypatch.setattr(image_ads.httpx, 'post', fake_image)
+    monkeypatch.setattr(image_ads, 'settings', lambda: SimpleNamespace(
+        openai_api_key='mock', openai_image_model='test-image'))
+    photo = upload(client).json()['id']
+    logo = upload(client, category='logo').json()['id']
+    url = '/api/leads/1/image-ads'
+    intervention = 'Place les repères de contact près des coordonnées. Donne à l’accroche une forme d’arc.'
+    data = {'mode': 'ai', 'action': 'full', 'format': 'square', 'display_name': 'Nom à imprimer',
+            'phone': '01 00 00 00 00', 'address': '', 'website': '', 'layout': 'editorial',
+            'message': 'Nouvelle accroche', 'visual_style': 'minimalist',
+            'operator_instruction': intervention, 'media_ids': [photo], 'logo_id': logo, 'contact_icons': False}
+    result = client.post(url, json=data)
+    assert result.status_code == 202
+    identifier = result.json()['id']
+    project = wait(client, identifier)
+    assert project['options']['render_kind'] == 'full'
+    assert not project['has_background']
+    assert calls[0][0].endswith('/edits')
+    request = calls[0][1]
+    assert [item[1][0] for item in request['files']] == ['reference.png', 'logo-fourni.png']
+    prompt = request['data']['prompt']
+    assert intervention in prompt
+    assert 'pictogrammes de contact' not in prompt
+    assert all(text in prompt for text in ('Nom à imprimer', '01 00 00 00 00', 'Nouvelle accroche', 'Minimaliste'))
+    rendered = Image.open(io.BytesIO(client.get(project['png']).content))
+    assert rendered.size == (1080, 1080)
+    assert rendered.getbbox() == (0, 0, 1080, 1080)
+    assert rendered.getpixel((80, 80)) == (0, 0, 255)  # No second composition on top.
+    path = f'{url}/{identifier}'
+    assert client.post(path + '/preview', json=data).status_code == 409
+    previous_png = client.get(project['png']).content
+    variant = client.post(path, json={**data, 'action': 'full_variant', 'use_previous_flyer': True,
+                                      'contact_icons': True})
+    assert variant.status_code == 202
+    variant_project = wait(client, variant.json()['id'])
+    assert variant_project['id'] != identifier
+    assert calls[1][1]['files'][-1][1] == ('flyer-precedent.png', previous_png, 'image/png')
+    assert '"à placer juste à côté du champ correspondant": ["téléphone"]' in calls[1][1]['data']['prompt']
+
+
+
+def test_contact_icon_option_places_icons_in_footer(studio):
+    client, _ = studio
+    photo = upload(client).json()['id']
+    data = {'mode': 'photo', 'format': 'square', 'media_ids': [photo],
+            'phone': '01 00 00 00 00', 'address': '1 rue du Marché'}
+    path = '/api/leads/1/image-ads/preview'
+    baseline = Image.open(io.BytesIO(client.post(path, json={**data, 'contact_icons': False}).content))
+    response = client.post(path, json=data)
+    assert response.status_code == 200
+    with_icons = Image.open(io.BytesIO(response.content))
+    assert client.post(path, json={**data, 'contact_icons': True}).content == response.content
+    assert ImageChops.difference(baseline, with_icons).getbbox()[1] > 880
+    assert client.post(path, json={**data, 'phone': '', 'address': ''}).content == client.post(
+        path, json={**data, 'phone': '', 'address': '', 'contact_icons': False}).content
