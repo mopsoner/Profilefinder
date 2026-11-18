@@ -103,10 +103,12 @@ def validate_slides(slides, page_count, duration):
     return result
 
 
-def embed_local_images(html):
-    # Only cached, locally generated images are embedded. Capture workers never browse the network.
+def embed_local_images(html, prospect_images=None):
+    # Only validated local images are embedded. Capture workers never browse the network.
     def replace(match):
         src = match[1]
+        if src in (prospect_images or {}):
+            return 'src="data:image/png;base64,' + base64.b64encode(prospect_images[src]).decode() + '"'
         if src.startswith('/static/generated/'):
             path = (ROOT / 'app' / src.lstrip('/')).resolve()
             allowed = (ROOT / 'app/static/generated').resolve()
@@ -118,7 +120,7 @@ def embed_local_images(html):
     return re.sub(r'src="([^"]*)"', replace, html)
 
 
-def capture_pages(directory, site, lead, progress, format_name='landscape'):
+def capture_pages(directory, site, lead, progress, format_name='landscape', *, prospect_images=None):
     from playwright.sync_api import sync_playwright
     pages = site_pages(site, lead['name'])
     site = {**site, 'site_title': site.get('site_title') or lead['name']}
@@ -130,7 +132,7 @@ def capture_pages(directory, site, lead, progress, format_name='landscape'):
             page.route('**/*', lambda route: route.abort())
             for index, current in enumerate(pages):
                 html = templates.get_template('lead_web.html').render(lead=lead, site=site, pages=pages, page=current, photo_count=0)
-                page.set_content(embed_local_images(html), wait_until='load', timeout=20000)
+                page.set_content(embed_local_images(html, prospect_images), wait_until='load', timeout=20000)
                 page.screenshot(path=str(directory / f'page-{index}.png'), animations='disabled')
                 progress(round((index + 1) / len(pages) * 100))
         finally:
@@ -138,7 +140,7 @@ def capture_pages(directory, site, lead, progress, format_name='landscape'):
     return pages
 
 
-def compose_slides(directory, slides, lead, format_name, site=None, progress=lambda _:None):
+def compose_slides(directory, slides, lead, format_name, site=None, progress=lambda _:None, *, scene_media=None, logo=None):
     from playwright.sync_api import sync_playwright
     width, height = FORMATS[format_name]
     site=site or {}
@@ -152,8 +154,14 @@ def compose_slides(directory, slides, lead, format_name, site=None, progress=lam
             page.route('**/*', lambda route: route.abort())
             for index, slide in enumerate(slides):
                 art=direction(site,pages,slide,index,len(slides))
-                cinematic=site.get('_video_visual_mode')=='cinematic'
-                if cinematic:
+                asset=(scene_media or {}).get(index)
+                cinematic=bool(asset) or site.get('_video_visual_mode')=='cinematic'
+                if asset:
+                    art['image']='data:image/png;base64,'+base64.b64encode(asset['image']).decode()
+                    art['headline']=slide.get('on_screen_text') or art['headline']
+                    art['support']=''
+                    art['text_position']=slide.get('text_position','left')
+                elif cinematic:
                     if art['layout']=='website':
                         visual=directory/f'page-{slide["page_index"]}.png'
                     else:
@@ -170,6 +178,7 @@ def compose_slides(directory, slides, lead, format_name, site=None, progress=lam
                 if (site.get('_video_direction') or {}).get('text_size')=='large':
                     headline_size=round(headline_size*1.15)
                     body_size=round(body_size*1.12)
+                art['logo']='data:image/png;base64,'+base64.b64encode(logo).decode() if logo else ''
                 html=templates.get_template('video_shot.html' if cinematic else 'video_slide.html').render(art=art,lead=lead,index=index+1,count=len(slides),portrait=height>width,headline_size=headline_size,body_size=body_size,website_image=image,width=width,height=height)
                 page.set_content(html,wait_until='load')
                 for attempt in range(12):
@@ -214,7 +223,7 @@ def scene_timing(slides,duration,fps=30):
     return frames,overlap
 
 
-def encode_video(directory,audio_path,slides,duration,progress,options=None):
+def encode_video(directory,audio_path,slides,duration,progress,options=None,*,scene_media=None):
     options=options or {}
     fps=30
     frames,overlap=scene_timing(slides,duration,fps)
@@ -235,7 +244,15 @@ def encode_video(directory,audio_path,slides,duration,progress,options=None):
                  f"[bg][copy]overlay=x=0:y='max(0,48*(1-t/{entrance}))':eval=frame:shortest=1[motion];"
                  f"[motion][2:v]overlay=0:0:shortest=1,format=yuv420p[out]")
         cmd=['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-filter_complex_threads','1']
-        for name in ('background','copy','chrome'):
+        video=(scene_media or {}).get(index,{}).get('video')
+        layers=('background','copy','chrome')
+        if video:
+            cmd+=['-protocol_whitelist','file','-stream_loop','-1','-i',str(video)]
+            layers=('copy','chrome')
+            background=(f'[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,'
+                        f'crop={width}:{height},setsar=1,fps={fps},format=yuv420p[bg];')
+            filters=background+filters.split('[bg];',1)[1]
+        for name in layers:
             cmd+=['-loop','1','-framerate',str(fps),'-i',str(directory/f'{name}-{index}.png')]
         cmd+=['-filter_complex',filters,'-map','[out]','-frames:v',str(total_frames),'-c:v','libx264','-preset','veryfast','-crf','20','-threads','2','-an',str(directory/f'clip-{index}.mp4')]
         subprocess.run(cmd,capture_output=True,timeout=600,check=True)

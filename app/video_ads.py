@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from .db import SessionLocal, get_db
+from .media import media_payload, selected_media
 from .models import Lead, LeadWebsite, AudioAd, VideoAd, Job
 from .job_tracking import start_task, finish_task
 from .video_render import MEDIA, ROOT, FORMATS, audio_duration, site_pages, split_script, validate_slides, capture_pages, compose_slides, encode_video
@@ -74,7 +75,7 @@ async def read_json(request, maximum=29 * 1024 * 1024):
 
 def audio_payload(row):
     return {'id': row.id, 'lead_id': row.lead_id, 'script': row.script, 'duration': row.duration,
-            'created_at': row.created_at.isoformat(), 'url': f'/api/ads/audio/{row.id}'}
+            'media':json.loads(row.media_json or '{}'), 'created_at': row.created_at.isoformat(), 'url': f'/api/ads/audio/{row.id}'}
 
 
 @router.get('/api/ads/leads')
@@ -128,6 +129,9 @@ async def prepare_message(request: Request, db: Session = Depends(get_db)):
         if not isinstance(city,str) or len(city)>100:
             raise HTTPException(400, 'Ville invalide.')
         facts = {'profil':{'nom':profile['name'],'activite':profile['activity'],'ville':city}}
+    media=selected_media(db,lead_id,data.get('media_ids',[]))
+    if media:
+        facts['medias_du_prospect']=[{'nom':row.name,'categorie':row.category,'type':row.mime} for row in media]
     try:
         result = await run_in_threadpool(tracked_message, lead_id, facts, tone, duration, details)
         return {**result, 'lead_id':lead_id}
@@ -154,6 +158,13 @@ async def save_audio(request: Request, db: Session = Depends(get_db)):
         raw = decode_audio(data.get('audio'))
     except ValueError as error:
         raise HTTPException(400, str(error))
+    selections=data.get('media',{})
+    if not isinstance(selections,dict) or set(selections)-{'voice','music','context'}:
+        raise HTTPException(400,'Sélection audio invalide.')
+    for role in ('voice','music'):
+        if selections.get(role) is not None:
+            selected_media(db,lead_id,[selections[role]],('audio',))
+    selected_media(db,lead_id,selections.get('context',[]))
     identifier = uuid4().hex
     folder = MEDIA / 'audio'
     folder.mkdir(parents=True, exist_ok=True)
@@ -161,7 +172,7 @@ async def save_audio(request: Request, db: Session = Depends(get_db)):
     path.write_bytes(raw)
     try:
         duration = await run_in_threadpool(audio_duration, path)
-        row = AudioAd(id=identifier, lead_id=lead_id, script=script.strip(), duration=duration)
+        row = AudioAd(id=identifier, lead_id=lead_id, script=script.strip(), duration=duration, media_json=json.dumps(selections))
         db.add(row)
         db.commit()
     except (ValueError, subprocess.SubprocessError, KeyError, FileNotFoundError):
@@ -227,7 +238,7 @@ def project_payload(row):
     return {'id': row.id, 'lead_id': row.lead_id, 'audio_id': row.audio_id, 'format': row.format, 'status': row.status,
             'progress': row.progress, 'error': row.error, 'slides': slides, 'layouts':LAYOUT_NAMES,
             'client_instructions':site.get('_video_client_instructions',''), 'creative_direction':site.get('_video_direction',{}),
-            'visual_mode':site.get('_video_visual_mode','graphic'),
+            'visual_mode':site.get('_video_visual_mode','graphic'), 'media_ids':site.get('_video_media_ids',[]),
             'created_at': row.created_at.isoformat(), 'video_url': f'/api/video-ads/{row.id}/video' if row.status == 'completed' else None,
             'pages': [{'title': p.get('nav_label') or p.get('title') or 'Page', 'url': f'/api/video-ads/{row.id}/pages/{i}'} for i, p in enumerate(site_pages(json.loads(row.site_json), 'Site'))]}
 
@@ -257,9 +268,31 @@ def run_job(identifier, mode):
             lead_data = {'id': lead.id, 'name': lead.name, 'city': lead.city or '', 'phone': lead.phone or ''}
             directory = MEDIA / 'video' / row.id
             site, slides, format_name = json.loads(row.site_json), json.loads(row.slides_json), row.format
+            selected=[(asset.category, asset.mime, asset.content) for asset in
+                      selected_media(db, lead.id, site.get('_video_media_ids',[]), ('image','video'))]
+            site_images={media_payload(asset)['url']: asset.content for asset in
+                         selected_media(db, lead.id, site.get('_media_ids',[]), ('image','video'))
+                         if asset.mime == 'image/png'} if mode == 'prepare' else {}
             audio_path, duration = MEDIA / 'audio' / f'{audio.id}.mp3', audio.duration
         # Release the database connection before expensive browser and encoder work.
         directory.mkdir(parents=True, exist_ok=True)
+        scene_assets = [asset for asset in selected if asset[0] != 'logo']
+        logo = next((asset[2] for asset in selected if asset[0] == 'logo'), None)
+        scene_media = {}
+        for index, _ in enumerate(slides):
+            if not scene_assets:
+                break
+            _, mime, content = scene_assets[index % len(scene_assets)]
+            if mime.startswith('video/'):
+                path = directory / f'client-video-{index}.mp4'
+                path.write_bytes(content)
+                preview = directory / f'client-frame-{index}.png'
+                subprocess.run(['ffmpeg','-v','error','-nostdin','-y','-protocol_whitelist','file','-i',str(path),
+                                '-vf','scale=1920:1920:force_original_aspect_ratio=decrease','-frames:v','1',
+                                '-threads','1',str(preview)],capture_output=True,check=True,timeout=30)
+                scene_media[index] = {'image':preview.read_bytes(), 'video':path}
+            else:
+                scene_media[index] = {'image':content}
         update(identifier,stage="Interprétation des instructions client")
         brief=site.get('_video_client_instructions','')
         if site.get('_video_brief_applied')!=brief:
@@ -275,26 +308,26 @@ def run_job(identifier, mode):
                 site.pop('_video_direction',None)
             site['_video_brief_applied']=brief
             update(identifier,site_json=json.dumps(site),slides_json=json.dumps(slides))
-        cinematic=site.get('_video_visual_mode')=='cinematic'
+        cinematic=site.get('_video_visual_mode')=='cinematic' and not scene_media
         if cinematic:
             update(identifier,stage="Planification et génération des visuels IA")
             slides=ensure_shots(directory,site,slides,lead_data,format_name,lambda n:update(identifier,progress=round(n*(.35 if mode=="render" else .5))))
             update(identifier,slides_json=json.dumps(slides))
         if mode == 'prepare':
             update(identifier,stage='Capture des pages du site')
-            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=(50 if cinematic else 0)+round(n*(.2 if cinematic else .45))), format_name)
+            capture_pages(directory, site, lead_data, lambda n: update(identifier, progress=(50 if cinematic else 0)+round(n*(.2 if cinematic else .45))), format_name, prospect_images=site_images)
             update(identifier,stage='Composition des plans')
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(70 if cinematic else 45)+round(n*(.3 if cinematic else .55))))
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(70 if cinematic else 45)+round(n*(.3 if cinematic else .55))), scene_media=scene_media, logo=logo)
             update(identifier, status='ready', progress=100)
         elif mode=='preview':
             update(identifier,stage='Actualisation des plans')
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(50 if cinematic else 0)+round(n*(.5 if cinematic else 1))))
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier,progress=(50 if cinematic else 0)+round(n*(.5 if cinematic else 1))), scene_media=scene_media, logo=logo)
             update(identifier,status='ready',progress=100)
         else:
             update(identifier,stage='Composition des plans')
-            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=(35 if cinematic else 0)+round(n*(.15 if cinematic else .2))))
+            compose_slides(directory, slides, lead_data, format_name, site, lambda n: update(identifier, progress=(35 if cinematic else 0)+round(n*(.15 if cinematic else .2))), scene_media=scene_media, logo=logo)
             update(identifier,stage='Encodage et assemblage MP4 · FFmpeg')
-            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=(50 if cinematic else 20)+round(n*(.5 if cinematic else .8))),site.get('_video_direction'))
+            encode_video(directory, audio_path, slides, duration, lambda n: update(identifier, progress=(50 if cinematic else 20)+round(n*(.5 if cinematic else .8))),site.get('_video_direction'), scene_media=scene_media)
             update(identifier, status='completed', progress=100)
     except Exception as error:
         logger.exception('Video Ads job failed: %s', identifier)
@@ -314,8 +347,6 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
     visual_mode=data.get('visual_mode','graphic')
     if visual_mode not in ('cinematic','graphic'):
         raise HTTPException(400,'Choisissez un mode visuel valide.')
-    if visual_mode=='cinematic' and not can_generate_visuals():
-        raise HTTPException(503,'Les plans vidéo IA nécessitent la clé OpenAI. Vous pouvez utiliser le mode Compositions graphiques.')
     if not await run_in_threadpool(video_tools_ready):
         missing = (await run_in_threadpool(video_dependencies))['missing']
         raise HTTPException(503, 'Outils vidéo manquants sur le serveur : '+', '.join(missing)+'. Exécutez scripts/install.sh puis redémarrez ProfileFinder.')
@@ -327,6 +358,10 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
     website = db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id == lead_id))
     if not lead or not audio or audio.lead_id != lead_id:
         raise HTTPException(400, 'Sélectionnez un audio appartenant à ce prospect.')
+    media_ids=data.get('media_ids',[])
+    media=selected_media(db,lead_id,media_ids,('image','video'))
+    if visual_mode=='cinematic' and not any(asset.category!='logo' for asset in media) and not can_generate_visuals():
+        raise HTTPException(503,'Configurez OpenAI, choisissez des médias réels ou utilisez le mode graphique.')
     if not website:
         raise HTTPException(400, 'Générez d’abord le site du prospect dans Sites IA.')
     if not (MEDIA / 'audio' / f'{audio.id}.mp3').is_file():
@@ -340,6 +375,7 @@ async def prepare(request: Request, db: Session = Depends(get_db)):
     pages = site_pages(site, lead.name)
     site['_video_client_instructions']=brief
     site['_video_visual_mode']=visual_mode
+    site['_video_media_ids']=media_ids
     slides = split_script(audio.script, pages, audio.duration)
     if not slot.acquire(blocking=False):
         raise HTTPException(409, 'Un rendu est déjà en cours. Réessayez après sa fin.')
@@ -383,6 +419,9 @@ async def render(identifier: str, request: Request, db: Session = Depends(get_db
     if visual_mode not in ('cinematic','graphic'):
         raise HTTPException(400,'Choisissez un mode visuel valide.')
     site['_video_visual_mode']=visual_mode
+    media_ids=data.get('media_ids',site.get('_video_media_ids',[]))
+    selected_media(db,row.lead_id,media_ids,('image','video'))
+    site['_video_media_ids']=media_ids
     try:
         brief=clean_brief(data.get('client_instructions',site.get('_video_client_instructions','')))
     except ValueError as error:

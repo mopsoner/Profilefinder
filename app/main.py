@@ -8,7 +8,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select,func,text
 from sqlalchemy.orm import Session
 from .db import Base,engine,SessionLocal,get_db
-from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd
+from .models import Job,Lead,JobLead,LeadWebsite,AudioAd,VideoAd,ProspectMedia,ImageAd
+from .media import router as media_router, CATEGORIES, selected_media, media_payload
+from .image_ads import router as image_router, recover_image_jobs
 from .core import grid_points,normalize_phone,score
 from .places import Places
 from .site_generator import generate_lead_website,generate_site_images
@@ -33,6 +35,8 @@ with engine.begin() as conn:
         if "resource_id" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN resource_id VARCHAR(32)"))
         if "stage" not in cols: conn.execute(text("ALTER TABLE jobs ADD COLUMN stage TEXT"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_resource_id ON jobs (resource_id)"))
+        audio_cols={row[1] for row in conn.execute(text("PRAGMA table_info(audio_ads)"))}
+        if "media_json" not in audio_cols: conn.execute(text("ALTER TABLE audio_ads ADD COLUMN media_json TEXT NOT NULL DEFAULT '{}'"))
         lead_cols={row[1] for row in conn.execute(text("PRAGMA table_info(leads)"))}
         if "google_activity_at" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN google_activity_at DATETIME"))
         if "insights_json" not in lead_cols: conn.execute(text("ALTER TABLE leads ADD COLUMN insights_json TEXT"))
@@ -68,14 +72,17 @@ app.mount("/static",StaticFiles(directory="app/static"),name="static")
 app.mount("/shared",StaticFiles(directory="shared"),name="shared")
 from .ads import router as ads_router
 app.include_router(ads_router)
+app.include_router(media_router)
+app.include_router(image_router)
 from .video_ads import router as video_ads_router, recover_interrupted_jobs
 app.include_router(video_ads_router)
 @app.on_event('startup')
 def startup_recover_video_jobs():
     recover_interrupted_jobs()
+    recover_image_jobs()
     with SessionLocal() as db:
         for row in db.scalars(select(Job).where(Job.kind.in_(['audio_voice','audio_mix','audio_copy']),Job.status.in_(['queued','running']))):
-            row.status='failed'; row.error='Traitement audio interrompu par le redémarrage. Relancez-le dans Ads.'; row.finished_at=datetime.utcnow()
+            row.status='failed'; row.error='Traitement audio interrompu par le redémarrage. Relancez-le dans Audio Ads.'; row.finished_at=datetime.utcnow()
         db.commit()
 tpl=Jinja2Templates(directory="app/templates")
 tpl.env.globals["website_art"]=website_art
@@ -311,7 +318,9 @@ def rerun_search(job_id:int,db:Session=Depends(get_db)):
     source=db.get(Job,job_id)
     if not source: return RedirectResponse("/search",303)
     if source.kind=="site_ai" and source.lead_id:
-        queue_site_generation(source.lead_id,source.client_instructions)
+        media_ids=json.loads(source.types) if source.types.startswith('[') else []
+        selected_media(db,source.lead_id,media_ids,('image','video'))
+        queue_site_generation(source.lead_id,source.client_instructions,tuple(media_ids))
         return RedirectResponse("/sites",303)
     if source.kind not in ("search", "site_ai"):
         return RedirectResponse(job_payload(source,{lead.id:lead for lead in db.scalars(select(Lead))})["result_url"] or "/jobs",303)
@@ -381,6 +390,8 @@ def ops_delete_department(department_code:str):
 @app.post("/ops/database/clear-prospects")
 def ops_clear_prospects(db:Session=Depends(get_db)):
     db.query(JobLead).delete(synchronize_session=False)
+    db.query(ImageAd).delete(synchronize_session=False)
+    db.query(ProspectMedia).delete(synchronize_session=False)
     db.query(Lead).delete(synchronize_session=False)
     db.commit()
     return RedirectResponse("/ops#database",303)
@@ -395,6 +406,8 @@ def ops_clear_jobs(db:Session=Depends(get_db)):
 @app.post("/ops/database/clear-all")
 def ops_clear_all(db:Session=Depends(get_db)):
     db.query(JobLead).delete(synchronize_session=False)
+    db.query(ImageAd).delete(synchronize_session=False)
+    db.query(ProspectMedia).delete(synchronize_session=False)
     db.query(Lead).delete(synchronize_session=False)
     db.query(Job).delete(synchronize_session=False)
     db.commit()
@@ -444,7 +457,8 @@ def lead_detail(lead_id:int,request:Request,db:Session=Depends(get_db)):
     audios=db.scalars(select(AudioAd).where(AudioAd.lead_id==lead_id).order_by(AudioAd.created_at.desc())).all()
     videos=db.scalars(select(VideoAd).where(VideoAd.lead_id==lead_id).order_by(VideoAd.created_at.desc())).all()
     website=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
-    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews,"audios":audios,"videos":videos,"website":website})
+    images=db.execute(select(ImageAd.id, ImageAd.created_at).where(ImageAd.lead_id==lead_id).order_by(ImageAd.created_at.desc())).all()
+    return tpl.TemplateResponse(request,"lead_detail.html",{"lead":lead,"jobs":jobs,"photos":photos,"reviews":reviews,"audios":audios,"videos":videos,"website":website,"images":images,"categories":CATEGORIES,"lead_id":lead_id,"creative_jobs":[job_payload(row,{lead.id:lead}) for row in jobs if row.kind in ("image_render","image_copy")]})
 
 @app.get("/sites",response_class=HTMLResponse)
 def sites(request:Request,db:Session=Depends(get_db)):
@@ -475,7 +489,16 @@ def generate_site_background(lead_id:int,job_id:int):
         content['_client_instructions']=brief
         if job:
             job.stage="Génération des images du site"; job.error="PROGRESS:1/2"; db.commit()
-        content=generate_site_images(lead_id,content)
+        media_ids=json.loads(job.types) if job and job.types.startswith('[') else []
+        rows=selected_media(db,lead_id,media_ids,('image','video'))
+        content['_media_ids']=media_ids
+        content['_media']=[media_payload(row) for row in rows]
+        photos=[asset for asset in content['_media'] if asset['mime'].startswith('image/') and asset['category']!='logo']
+        for page in content.get('pages',[]):
+            for section,photo in zip(page.get('sections',[]),photos):
+                section['image_url']=photo['url']
+        if not photos:
+            content=generate_site_images(lead_id,content)
         row=db.scalar(select(LeadWebsite).where(LeadWebsite.lead_id==lead_id))
         if row:
             row.content_json=json.dumps(content,ensure_ascii=False); row.model=settings().openai_model; row.updated_at=datetime.utcnow()
@@ -491,7 +514,7 @@ def generate_site_background(lead_id:int,job_id:int):
         raise
     finally: db.close()
 
-def queue_site_generation(lead_id:int,client_instructions:str=""):
+def queue_site_generation(lead_id:int,client_instructions:str="",media_ids:tuple[str,...]=()):
     client_instructions=clean_brief(client_instructions)
     with site_ai_lock:
         current=site_ai_futures.get(lead_id)
@@ -500,7 +523,7 @@ def queue_site_generation(lead_id:int,client_instructions:str=""):
         try:
             lead=db.get(Lead,lead_id)
             if not lead: return False
-            job=Job(city=lead.name,latitude=lead.latitude or 0,longitude=lead.longitude or 0,radius=0,types="site_ai",max_results=1,rings=0,status="queued",kind="site_ai",lead_id=lead_id,client_instructions=client_instructions)
+            job=Job(city=lead.name,latitude=lead.latitude or 0,longitude=lead.longitude or 0,radius=0,types=json.dumps(media_ids),max_results=1,rings=0,status="queued",kind="site_ai",lead_id=lead_id,client_instructions=client_instructions)
             db.add(job); db.commit(); db.refresh(job); job_id=job.id
         finally: db.close()
         future=site_ai_pool.submit(generate_site_background,lead_id,job_id)
@@ -516,9 +539,10 @@ def site_generation_status(lead_id:int):
     return "error" if future.exception() else "completed"
 
 @app.post("/sites/{lead_id}/generate")
-def sites_generate(lead_id:int,client_instructions:str=Form('',max_length=3000),db:Session=Depends(get_db)):
+def sites_generate(lead_id:int,client_instructions:str=Form('',max_length=3000),media_ids:list[str]=Form([]),db:Session=Depends(get_db)):
     if not db.get(Lead,lead_id): return RedirectResponse("/sites",303)
-    queue_site_generation(lead_id,client_instructions)
+    selected_media(db,lead_id,media_ids,('image','video'))
+    queue_site_generation(lead_id,client_instructions,tuple(media_ids))
     return RedirectResponse("/sites",303)
 
 @app.post("/sites/{lead_id}/delete")
@@ -560,9 +584,10 @@ def lead_web(lead_id:int,request:Request,page:str="accueil",db:Session=Depends(g
     return tpl.TemplateResponse(request,"lead_web.html",{"lead":lead,"site":site,"pages":pages,"page":current,"photo_count":photo_count})
 
 @app.post("/leads/{lead_id}/web/generate")
-def generate_lead_web(lead_id:int,client_instructions:str=Form('',max_length=3000),db:Session=Depends(get_db)):
+def generate_lead_web(lead_id:int,client_instructions:str=Form('',max_length=3000),media_ids:list[str]=Form([]),db:Session=Depends(get_db)):
     if not db.get(Lead,lead_id): return RedirectResponse("/leads",303)
-    queue_site_generation(lead_id,client_instructions)
+    selected_media(db,lead_id,media_ids,('image','video'))
+    queue_site_generation(lead_id,client_instructions,tuple(media_ids))
     return RedirectResponse(f"/leads/{lead_id}/web?generating=1",303)
 
 @app.get("/api/leads/{lead_id}/photos")

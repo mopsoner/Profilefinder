@@ -1,0 +1,10 @@
+<section class="panel" id="prospect-media" data-media-library="{{lead_id or ''}}" data-categories="{{categories|tojson|forceescape}}">
+<h2>Bibliothèque de médias</h2>
+<form data-media-upload {% if not lead_id %}hidden{% endif %}>
+  <label>Fichier (24 Mio maximum)<input type="file" name="file" accept=".png,.jpg,.jpeg,.webp,.mp4,.mp3,.wav" required></label>
+  <label>Catégorie<select name="category">{% for value, label in categories.items() %}<option value="{{value}}" {% if value=='other' %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+  <button>Importer</button>
+</form>
+<p role="status" data-media-status></p><div class="prospect-media-grid" data-media-list></div>
+</section>
+<script defer src="/static/media-library.js"></script>

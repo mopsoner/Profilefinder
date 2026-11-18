@@ -7,13 +7,21 @@
 {% include 'lead_web_v2.css' %}
 </style></head><body class="website-v2 direction-{{art.direction}} density-{{art.density}} header-{{art.header_style}} button-{{art.button_style}} hero-{{site.hero_style}} layout-{{site.layout_style}} radius-{{site.radius_style}} {% if not assets.images %}without-images{% endif %}">
 <a class="skip" href="#content">Aller au contenu</a>
-<header class="site-header wrap"><a class="brand" href="/leads/{{lead.id}}/web">{{site.site_title or lead.name}}</a><nav aria-label="Navigation principale">{% for p in pages %}<a href="/leads/{{lead.id}}/web?page={{p.slug}}" {% if p.slug==page.slug %}aria-current="page"{% endif %}>{{p.nav_label}}</a>{% endfor %}</nav><a class="header-contact" href="#contact">Parlons de votre projet <span class="arrow" aria-hidden="true"></span></a></header>
+<header class="site-header wrap"><a class="brand" href="/leads/{{lead.id}}/web">{% set logo=(site.get('_media',[])|selectattr('category','equalto','logo')|list|first) %}{% if logo %}<img src="{{logo.url}}" style="max-width:130px;max-height:54px;object-fit:contain;vertical-align:middle;margin-right:10px" alt="">{% endif %}{{site.site_title or lead.name}}</a><nav aria-label="Navigation principale">{% for p in pages %}<a href="/leads/{{lead.id}}/web?page={{p.slug}}" {% if p.slug==page.slug %}aria-current="page"{% endif %}>{{p.nav_label}}</a>{% endfor %}</nav><a class="header-contact" href="#contact">Parlons de votre projet <span class="arrow" aria-hidden="true"></span></a></header>
 <main id="content">
 <section class="hero wrap {% if assets.images %}has-image{% endif %}">
 <div class="hero-copy"><p class="eyebrow">{{site.tagline}}</p><h1>{{page.title}}</h1><p class="hero-intro">{{page.intro}}</p><a class="button" href="#contact">{% if site.hero_style=='service_first' %}Nous contacter{% else %}Découvrir notre univers{% endif %}<span class="arrow" aria-hidden="true"></span></a></div>
 {% if assets.images %}<div class="hero-media" aria-hidden="true">{% if site.hero_style=='mosaic' %}{% for url in assets.images[:3] %}<img src="{{url}}" alt="" {% if loop.index>1 %}loading="lazy"{% endif %}>{% endfor %}{% else %}<img src="{{assets.images[0]}}" alt="">{% endif %}</div>{% endif %}
 {% if site.hero_style=='service_first' %}<nav class="service-strip" aria-label="Découvrir nos services">{% for section in page.get('sections',[])[:4] %}<a href="#section-{{loop.index}}"><span class="service-number">{{'%02d'|format(loop.index)}}</span>{{section.title}}<span class="arrow down" aria-hidden="true"></span></a>{% endfor %}</nav>{% endif %}
-</section>
+</section>{% set client_media=site.get('_media',[]) %}
+{% if client_media and page.slug=='accueil' %}
+<section class="wrap" aria-label="Médias de {{lead.name}}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;margin-block:20px">
+{% for asset in client_media if asset.category!='logo' %}
+  <figure style="margin:0">{% if asset.mime=='video/mp4' %}<video src="{{asset.url}}" controls playsinline preload="metadata" style="width:100%;max-height:400px"></video>
+  {% else %}<img src="{{asset.url}}" alt="{{asset.name}}" loading="lazy" style="width:100%;max-height:340px;object-fit:contain">{% endif %}
+  {% if asset.attribution %}<figcaption>{{asset.attribution}}</figcaption>{% endif %}</figure>
+{% endfor %}
+</section>{% endif %}
 <div class="sections wrap">{% for section in page.get('sections',[]) %}<section id="section-{{loop.index}}" class="content-section {% if section.get('image_url') and art.image_style!='none' %}with-image{% endif %}">
 {% if section.get('image_url') and art.image_style!='none' %}<figure class="section-media"><img src="{{section.image_url}}" alt="" loading="lazy"></figure>{% endif %}
 <div class="section-copy"><span class="section-number" aria-hidden="true">{{'%02d'|format(loop.index)}}</span><h2>{{section.get('title','')}}</h2><p>{{section.get('text','')}}</p>{% set items=section.get('items',[]) %}{% if items %}<ul class="items">{% for item in items %}<li>{{item}}</li>{% endfor %}</ul>{% endif %}</div>

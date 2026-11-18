@@ -6,17 +6,17 @@ function bars(selector, count, scale) { const el = document.querySelector(select
 bars('.orb-bars', 19, 64); bars('.mix-wave', 65, 31);
 function countWords(){const count=$('ad-text').value.trim().split(/\s+/).filter(Boolean).length;$('word-count').textContent=`${count} mots · ≈ ${Math.round(count/2.5)} s`;}
 function invalidateMix(){if(state.mixURL) URL.revokeObjectURL(state.mixURL);state.mixURL=null;state.mixBlob=null;state.exportAudioId=null;$('save-video-audio').textContent='▸ Enregistrer et créer une Video Ad';$('save-video-audio').hidden=true;$('mix-player').pause();$('mix-player').removeAttribute('src');$('mix-player').hidden=true;$('download').hidden=true;}
-function setVoice(blob, name){invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=blob;state.voiceURL=URL.createObjectURL(blob);$('voice-player').src=state.voiceURL;$('voice-player').hidden=false;$('voice-filename').textContent=name;}
+function setVoice(blob, name){invalidateMix();$('library-voice').value='';if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=blob;state.voiceURL=URL.createObjectURL(blob);$('voice-player').src=state.voiceURL;$('voice-player').hidden=false;$('voice-filename').textContent=name;}
 $('ad-text').addEventListener('input',countWords);
 $('generate-text').addEventListener('click',()=>busy('generate-text',async()=>{
  const leadId=$('ads-lead').value, original=$('ad-text').value;
- const response=await fetch('/api/ads/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:leadId?Number(leadId):null,profile:{name:$('company').value,activity:$('activity').value,city:$('city').value},details:$('details').value,tone:$('tone').value,duration:Number($('duration').value)})});
+ const response=await fetch('/api/ads/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:leadId?Number(leadId):null,profile:{name:$('company').value,activity:$('activity').value,city:$('city').value},details:$('details').value,media_ids:contextMedia(),tone:$('tone').value,duration:Number($('duration').value)})});
  const result=await response.json();if(!response.ok)throw new Error(result.detail||'Génération impossible.');
  if($('ads-lead').value!==leadId||$('ad-text').value!==original){toast('Le profil ou le texte a changé pendant la génération. Relancez pour conserver vos modifications.');return;}
  $('ad-text').value=result.script;countWords();toast('Votre message OpenAI est prêt. Relisez-le avant la voix off.');
 }));
 $('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('ad-text').value);toast('Script copié.');}catch{toast('Sélectionnez le texte pour le copier dans votre navigateur.');}});
-for(const kind of ['voice','music']) $(kind+'-file').addEventListener('change',event=>{const file=event.target.files[0];if(!file)return;if(file.size>20*1024*1024){toast('Ce fichier dépasse la limite de 20 Mo.');event.target.value='';return;}if(!file.type.startsWith('audio/')&&!/\.(mp3|wav|m4a|ogg|flac|aac|webm)$/i.test(file.name)){toast('Choisissez un fichier audio.');event.target.value='';return;}if(kind==='voice'){setVoice(file,file.name);state.voiceScript=null;}else{state.music=file;$('music-filename').textContent=file.name;invalidateMix();}toast(kind==='voice'?'Voix off importée.':'Musique importée.');});
+for(const kind of ['voice','music']) $(kind+'-file').addEventListener('change',event=>{const file=event.target.files[0];if(!file)return;if(file.size>20*1024*1024){toast('Ce fichier dépasse la limite de 20 Mo.');event.target.value='';return;}if(!file.type.startsWith('audio/')&&!/\.(mp3|wav|m4a|ogg|flac|aac|webm)$/i.test(file.name)){toast('Choisissez un fichier audio.');event.target.value='';return;}if(kind==='voice'){setVoice(file,file.name);state.voiceScript=null;}else{$('library-music').value='';state.music=file;$('music-filename').textContent=file.name;invalidateMix();}toast(kind==='voice'?'Voix off importée.':'Musique importée.');});
 for(const kind of ['voice','music']) $(kind+'-volume').addEventListener('input',()=>{$(kind+'-value').textContent=$(kind+'-volume').value+' %';invalidateMix();});
 $('duck').addEventListener('change',invalidateMix);
 async function request(url, data){const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!response.ok){let error;try{error=await response.json();}catch{error={error:'Le serveur ne répond pas correctement.'};}throw new Error(error.error||'La requête a échoué.');}return response.blob();}
@@ -32,26 +32,28 @@ $('generate-voice').addEventListener('click',()=>busy('generate-voice',async()=>
  else toast('Voix off générée. Sélectionnez un prospect avant la génération pour conserver son audio et son message.');
 }));
 function base64(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('Impossible de lire le fichier audio.'));reader.readAsDataURL(blob);});}
-async function saveAssociatedAudio(blob,script,leadId){
- const response=await fetch('/api/ads/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:Number(leadId),script,audio:await base64(blob)})});
+async function saveAssociatedAudio(blob,script,leadId,media={context:contextMedia()}){
+ const response=await fetch('/api/ads/audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:Number(leadId),script,media,audio:await base64(blob)})});
  let audio;try{audio=await response.json();}catch{throw new Error('Réponse du serveur invalide.');}
  if(!response.ok)throw new Error(typeof audio.detail==='string'?audio.detail:'Enregistrement impossible.');
  return audio;
 }
 $('export').addEventListener('click',()=>busy('export',async()=>{
- if(!state.voice)throw new Error('Générez ou importez une voix off pour créer votre spot.');
- const voice=state.voice,music=state.music,script=state.voiceScript||$('ad-text').value,leadId=$('ads-lead').value;
- const data={lead_id:leadId?Number(leadId):null,voice:await base64(voice),music:music?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};
- const blob=await request('/api/mix',data);invalidateMix();state.mixBlob=blob;state.exportScript=script;state.exportLeadId=leadId;state.mixURL=URL.createObjectURL(blob);$('save-video-audio').hidden=false;$('mix-player').src=state.mixURL;$('mix-player').hidden=false;$('download').href=state.mixURL;$('download').download=($('company').value.trim().replace(/[^\p{L}\p{N}-]+/gu,'-')||'publicite')+'-ads.mp3';$('download').hidden=false;
+ const voiceId=$('library-voice').value,musicId=$('library-music').value;
+ if(!state.voice&&!voiceId)throw new Error('Générez ou importez une voix off pour créer votre spot.');
+ const voice=state.voice,music=state.music,script=(voiceId?'':state.voiceScript)||$('ad-text').value,leadId=$('ads-lead').value;
+ const data={lead_id:leadId?Number(leadId):null,voice_media_id:voiceId||null,music_media_id:musicId||null,voice:voiceId?null:await base64(voice),music:music&&!musicId?await base64(music):null,voice_volume:Number($('voice-volume').value)/100,music_volume:Number($('music-volume').value)/100,duck:$('duck').checked};
+ const selection={voice:voiceId||null,music:musicId||null,context:contextMedia()};
+ const blob=await request('/api/mix',data);if($('ads-lead').value!==leadId)return;state.exportMedia=selection;invalidateMix();state.mixBlob=blob;state.exportScript=script;state.exportLeadId=leadId;state.mixURL=URL.createObjectURL(blob);$('save-video-audio').hidden=false;$('mix-player').src=state.mixURL;$('mix-player').hidden=false;$('download').href=state.mixURL;$('download').download=($('company').value.trim().replace(/[^\p{L}\p{N}-]+/gu,'-')||'publicite')+'-ads.mp3';$('download').hidden=false;
  if(leadId&&script.trim()){
    $('save-video-audio').disabled=true;
-   try{const saved=await saveAssociatedAudio(blob,script,leadId);if(state.mixBlob===blob){state.exportAudioId=saved.id;$('save-video-audio').textContent='▸ Ouvrir cet audio et son message dans Video Ads';}toast('Spot audio et message enregistrés pour ce prospect.');}
+   try{const saved=await saveAssociatedAudio(blob,script,leadId,selection);if(state.mixBlob===blob){state.exportAudioId=saved.id;$('save-video-audio').textContent='▸ Ouvrir cet audio et son message dans Video Ads';}toast('Spot audio et message enregistrés pour ce prospect.');}
    catch(error){toast('Spot prêt, mais non sauvegardé : '+error.message+' Cliquez sur Enregistrer pour réessayer.');}
    finally{$('save-video-audio').disabled=false;}
  }else toast('Spot prêt. Pour le conserver dans Video Ads, choisissez un prospect et renseignez le texte exact de la voix off.');
 }));
 document.querySelectorAll('.step').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.step').forEach(el=>el.classList.remove('selected'));button.classList.add('selected');$(button.dataset.target).scrollIntoView({behavior:'smooth',block:'start'});}));
-$('reset').addEventListener('click',()=>{if(($('ad-text').value||state.voice||state.music)&&!confirm('Effacer le projet en cours ? Les fichiers téléchargés seront conservés.'))return;invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=null;state.music=null;state.voiceURL=null;state.voiceScript=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;for(const id of ['company','activity','city','details','ad-text','voice-file','music-file'])$(id).value='';$('voice-filename').textContent='Importer une voix off';$('music-filename').textContent='Ajouter une musique de fond';$('voice-volume').value=100;$('music-volume').value=18;$('voice-value').textContent='100 %';$('music-value').textContent='18 %';$('duck').checked=true;$('ads-lead').value='';$('voice-provider').value='openai';$('openai-voice').value='coral';$('voice-id').value='';updateProvider();countWords();$('company').focus();toast('Votre nouveau projet est prêt.');});
+$('reset').addEventListener('click',()=>{if(($('ad-text').value||state.voice||state.music)&&!confirm('Effacer le projet en cours ? Les fichiers téléchargés seront conservés.'))return;invalidateMix();if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voice=null;state.music=null;state.voiceURL=null;state.voiceScript=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;for(const id of ['company','activity','city','details','ad-text','voice-file','music-file'])$(id).value='';$('voice-filename').textContent='Importer une voix off';$('music-filename').textContent='Ajouter une musique de fond';$('voice-volume').value=100;$('music-volume').value=18;$('voice-value').textContent='100 %';$('music-value').textContent='18 %';$('duck').checked=true;$('ads-lead').value='';$('voice-provider').value='openai';$('openai-voice').value='coral';$('voice-id').value='';mountAudioLibrary('');updateProvider();countWords();$('company').focus();toast('Votre nouveau projet est prêt.');});
 let providerStatus=null;
 function updateProvider(){
  const isOpenAI=$('voice-provider').value==='openai';
@@ -67,13 +69,37 @@ $('save-video-audio').addEventListener('click',()=>busy('save-video-audio',async
  if(!state.mixBlob)throw new Error('Créez votre spot audio avant de l’enregistrer.');
  if(!$('ads-lead').value||$('ads-lead').value!==state.exportLeadId)throw new Error('Sélectionnez un lead, puis recréez le mix pour l’associer à ce profil.');
  if(!state.exportScript?.trim())throw new Error('Renseignez le texte exact de la voix off, puis recréez le mix.');
- const audio=state.exportAudioId?{id:state.exportAudioId,lead_id:Number(state.exportLeadId)}:await saveAssociatedAudio(state.mixBlob,state.exportScript,state.exportLeadId);
+ const audio=state.exportAudioId?{id:state.exportAudioId,lead_id:Number(state.exportLeadId)}:await saveAssociatedAudio(state.mixBlob,state.exportScript,state.exportLeadId,state.exportMedia);
  state.exportAudioId=audio.id;
  location.href='/leads/'+audio.lead_id+'/video-ads?audio_id='+audio.id;
 }));
+function contextMedia(){return window.ProspectMedia ? ProspectMedia.values($('audio-context-media')) : [];}
+let libraryRevision=0;
+async function mountAudioLibrary(leadId,saved={}){
+ const revision=++libraryRevision,root=$('audio-context-media');
+ $('audio-library').hidden=!leadId||!window.ProspectMedia;
+ for(const role of ['voice','music']) $('library-'+role).replaceChildren(new Option('Aucun fichier de la bibliothèque',''));
+ if(!window.ProspectMedia)return;
+ await ProspectMedia.mount(root,leadId,{ids:saved.context||[]});
+ if(revision!==libraryRevision)return;
+ for(const role of ['voice','music']){
+   const menu=$('library-'+role);
+   for(const row of root.mediaRows.filter(row=>row.mime.startsWith('audio/'))) menu.add(new Option(row.name,row.id));
+   if(saved[role]&&[...menu.options].some(option=>option.value===saved[role]))menu.value=saved[role];
+   menu.onchange=()=>{
+     invalidateMix();
+     const asset=root.mediaRows.find(row=>row.id===menu.value);
+     if(role==='voice'){
+       const player=$('voice-player');
+       player.src=asset?.url||state.voiceURL||'';
+       player.hidden=!asset&&!state.voice;
+     }
+   };
+ }
+}
 fetch('/api/ads/leads').then(r=>{if(!r.ok)throw new Error();return r.json();}).then(leads=>{
  leads.forEach(lead=>$('ads-lead').add(new Option(lead.name+(lead.city?' · '+lead.city:''),String(lead.id))));
- function applyLead(){const lead=leads.find(l=>String(l.id)===$('ads-lead').value);$('ads-lead-back').hidden=!lead;if(lead)$('ads-lead-back').href='/leads/'+lead.id+'#creations';invalidateMix();state.voiceScript=null;if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voiceURL=null;state.voice=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;$('voice-filename').textContent='Importer une voix off';$('ad-text').value='';countWords();if(lead){$('company').value=lead.name;$('activity').value=lead.activity.replaceAll('_',' ');$('city').value=lead.city;$('details').value='';$('ads-lead-status').textContent='Audio et script pourront être sauvegardés pour ce lead.';}else $('ads-lead-status').textContent='Choisissez un lead pour réutiliser votre audio dans Video Ads.';}
+ function applyLead(){state.music=null;$('music-filename').textContent='Ajouter une musique de fond';mountAudioLibrary($('ads-lead').value);const lead=leads.find(l=>String(l.id)===$('ads-lead').value);$('ads-lead-back').hidden=!lead;if(lead)$('ads-lead-back').href='/leads/'+lead.id+'#creations';invalidateMix();state.voiceScript=null;if(state.voiceURL)URL.revokeObjectURL(state.voiceURL);state.voiceURL=null;state.voice=null;$('voice-player').pause();$('voice-player').removeAttribute('src');$('voice-player').hidden=true;$('voice-filename').textContent='Importer une voix off';$('ad-text').value='';countWords();if(lead){$('company').value=lead.name;$('activity').value=lead.activity.replaceAll('_',' ');$('city').value=lead.city;$('details').value='';$('ads-lead-status').textContent='Audio et script pourront être sauvegardés pour ce lead.';}else $('ads-lead-status').textContent='Choisissez un lead pour réutiliser votre audio dans Video Ads.';}
  $('ads-lead').addEventListener('change',applyLead);
  const leadId=new URLSearchParams(location.search).get('lead_id');if(leads.some(l=>String(l.id)===leadId)){$('ads-lead').value=leadId;applyLead();if(new URLSearchParams(location.search).get('message_draft')==='1'){try{const draft=sessionStorage.getItem('ads-message-'+leadId);if(draft){$('ad-text').value=draft;countWords();toast('Message importé de Video Ads. Générez la voix off pour ce nouveau texte.');}}catch{}}}
  const audioId=new URLSearchParams(location.search).get('audio_id');
@@ -82,7 +108,7 @@ fetch('/api/ads/leads').then(r=>{if(!r.ok)throw new Error();return r.json();}).t
      const audio=context.audios.find(a=>a.id===audioId);if(!audio)throw new Error('Cet audio n’appartient pas à ce prospect ou n’est plus disponible.');
      const response=await fetch(audio.url);if(!response.ok)throw new Error('Fichier audio indisponible.');const blob=await response.blob();
      if($('ads-lead').value!==leadId)return;
-     setVoice(blob,'Audio enregistré · '+new Date(audio.created_at+'Z').toLocaleString('fr-FR'));state.voiceScript=audio.script;$('ad-text').value=audio.script;countWords();toast('Audio et message du prospect chargés.');
+     setVoice(blob,'Audio enregistré · '+new Date(audio.created_at+'Z').toLocaleString('fr-FR'));state.voiceScript=audio.script;await mountAudioLibrary(leadId,audio.media);if($('ads-lead').value!==leadId)return;$('ad-text').value=audio.script;countWords();toast('Audio et message du prospect chargés.');
    }).catch(error=>toast(error.message));
  }
  if(!leads.length)$('ads-lead-status').textContent='Ajoutez un prospect pour créer une annonce liée à son profil.';
