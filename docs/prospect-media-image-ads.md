@@ -12,7 +12,7 @@ La création IA propose le type Flyer par défaut. Le rendu PNG utilise le nom a
 
 ## Recherche de références de design
 
-Ajoutez `SERPAPI_API_KEY` dans `.env`, puis redémarrez ProfileFinder. En mode Création IA, la recherche Google Images se trouve dans **Photo réelle ou références IA**. Une recherche affiche tous les résultats uniques de la première page renvoyée par un seul appel SerpAPI. Enregistrez un résultat pour en garder une copie dans la bibliothèque partagée, avec son lien source. Les références enregistrées restent utilisables si la recherche est désactivée ou si le quota est atteint. Une création peut utiliser jusqu’à quatre images au total, en comptant les médias du prospect. Utilisez des références compatibles avec vos droits de réutilisation.
+Ajoutez `SERPAPI_API_KEY` dans `.env`, puis redémarrez ProfileFinder. En mode Création IA, la recherche Google Images se trouve dans **Photo réelle ou références IA**. Une recherche affiche tous les résultats uniques de la première page renvoyée par un seul appel SerpAPI. Tous les résultats téléchargeables sont enregistrés automatiquement en arrière-plan dans la bibliothèque partagée avec leur lien source. Les cases servent à choisir les références du flyer en cours. Si une image est inaccessible, elle est comptée dans les résultats indisponibles. Les références enregistrées restent utilisables si la recherche est désactivée ou si le quota est atteint. Une création peut utiliser jusqu’à quatre images au total, en comptant les médias du prospect. Utilisez des références compatibles avec vos droits de réutilisation.
 
 ## Studios
 

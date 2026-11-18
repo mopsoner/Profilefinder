@@ -6,8 +6,12 @@ import hmac
 import http.client
 import io
 import json
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from time import time
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,7 +20,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from .config import settings
 from .db import get_db
@@ -26,6 +30,11 @@ from .website_identity import public_resource
 
 router = APIRouter(prefix='/api/design-references')
 IMAGE_TYPES = ('image/png', 'image/jpeg', 'image/webp')
+logger = logging.getLogger(__name__)
+imports = ThreadPoolExecutor(max_workers=2, thread_name_prefix='design-import')
+downloads = ThreadPoolExecutor(max_workers=6, thread_name_prefix='design-download')
+import_jobs = {}
+import_lock = Lock()
 
 
 def web_url(value):
@@ -95,7 +104,7 @@ def library(db: Session = Depends(get_db)):
 
 
 @router.get('/search')
-def search(q: str = Query(min_length=2, max_length=150)):
+def search(q: str = Query(min_length=2, max_length=150), db: Session = Depends(get_db)):
     key = settings().serpapi_api_key
     if not key:
         raise HTTPException(503, 'Configurez SERPAPI_API_KEY pour utiliser la recherche.')
@@ -116,6 +125,7 @@ def search(q: str = Query(min_length=2, max_length=150)):
     except (httpx.HTTPError, ValueError, AttributeError) as error:
         raise HTTPException(502, 'Recherche Google Images indisponible.') from error
     output = []
+    to_import = []
     seen = set()
     for item in results if isinstance(results, list) else []:
         if not isinstance(item, dict):
@@ -129,20 +139,26 @@ def search(q: str = Query(min_length=2, max_length=150)):
         title = str(item.get('title') or 'Référence Google Images')[:255]
         source = web_url(item.get('link')) or original
         result = {'title': title, 'source_url': source, 'original': original, 'thumbnail': thumbnail}
+        to_import.append(result)
         output.append({'title': title, 'source_url': source, 'thumbnail': thumbnail, 'token': result_token(result, key)})
-    return {'results': output}
+    batch_id = None
+    if to_import:
+        batch_id = uuid4().hex
+        with import_lock:
+            for old_id in list(import_jobs):
+                if len(import_jobs) < 100:
+                    break
+                if import_jobs[old_id].done():
+                    del import_jobs[old_id]
+            import_jobs[batch_id] = imports.submit(import_results, sessionmaker(bind=db.get_bind()), to_import)
+    return {'results': output, 'batch_id': batch_id}
 
 
-@router.post('', status_code=201)
-def save(bookmark: Bookmark, db: Session = Depends(get_db)):
-    key = settings().serpapi_api_key
-    if not key:
-        raise HTTPException(503, 'Configurez SERPAPI_API_KEY pour enregistrer un nouveau résultat.')
-    result = unpack_result(bookmark.token, key)
-    identifier = hashlib.sha256(result['original'].encode()).hexdigest()[:32]
-    existing = db.get(DesignReference, identifier)
-    if existing:
-        return payload(existing)
+def reference_id(result):
+    return hashlib.sha256(result['original'].encode()).hexdigest()[:32]
+
+
+def download_reference(result):
     for url in (result['original'], result['thumbnail']):
         if not url:
             continue
@@ -154,13 +170,68 @@ def save(bookmark: Bookmark, db: Session = Depends(get_db)):
             continue
         break
     else:
-        raise HTTPException(422, 'Image indisponible ou incompatible. Choisissez un autre résultat.')
+        return None
     output = io.BytesIO()
     image.save(output, 'PNG')
+    return output.getvalue()
+
+
+def persist_reference(db, result, content):
+    identifier = reference_id(result)
     db.execute(insert(DesignReference).values(
-        id=identifier, title=result['title'], source_url=result['source_url'], content=output.getvalue()
+        id=identifier, title=result['title'], source_url=result['source_url'], content=content
     ).on_conflict_do_nothing(index_elements=['id']))
     db.commit()
+    return identifier
+
+
+def import_results(sessions, results):
+    by_id = {reference_id(result): result for result in results}
+    with sessions() as db:
+        existing = set(db.scalars(select(DesignReference.id).where(DesignReference.id.in_(by_id))))
+    saved = len(existing)
+    pending = {downloads.submit(download_reference, result): result
+               for identifier, result in by_id.items() if identifier not in existing}
+    for future in as_completed(pending):
+        result = pending.pop(future)
+        try:
+            content = future.result()
+            if content:
+                with sessions() as db:
+                    persist_reference(db, result, content)
+                saved += 1
+        except Exception:
+            logger.warning('Échec d’import d’une référence de design.', exc_info=True)
+    return {'saved': saved, 'unavailable': len(by_id) - saved}
+
+
+@router.get('/imports/{batch_id}')
+def import_status(batch_id: str):
+    with import_lock:
+        job = import_jobs.get(batch_id)
+    if job is None:
+        raise HTTPException(404, 'Import introuvable.')
+    if not job.done():
+        return {'status': 'running'}
+    if job.exception():
+        raise HTTPException(500, 'Import interrompu. Relancez la recherche pour compléter la bibliothèque.')
+    return {'status': 'completed', **job.result()}
+
+
+@router.post('', status_code=201)
+def save(bookmark: Bookmark, db: Session = Depends(get_db)):
+    key = settings().serpapi_api_key
+    if not key:
+        raise HTTPException(503, 'Configurez SERPAPI_API_KEY pour enregistrer un nouveau résultat.')
+    result = unpack_result(bookmark.token, key)
+    identifier = reference_id(result)
+    existing = db.get(DesignReference, identifier)
+    if existing:
+        return payload(existing)
+    content = download_reference(result)
+    if content is None:
+        raise HTTPException(422, 'Image indisponible ou incompatible. Choisissez un autre résultat.')
+    persist_reference(db, result, content)
     return payload(db.get(DesignReference, identifier))
 
 

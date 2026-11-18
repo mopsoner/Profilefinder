@@ -146,38 +146,27 @@
     designNotice('Recherche en cours…');
     $('design-results').replaceChildren();
     try {
-      const {results} = await ProspectMedia.request(designApi + '/search?' + new URLSearchParams({q: query}));
+      const {results, batch_id: batchId} = await ProspectMedia.request(
+        designApi + '/search?' + new URLSearchParams({q: query}));
       if (revision !== epoch) return;
-      for (const item of results) {
-        const card = referenceCard(item, item.thumbnail);
-        const save = document.createElement('button');
-        save.type = 'button';
-        save.className = 'secondary';
-        save.textContent = 'Enregistrer comme référence';
-        save.onclick = async () => {
-          save.disabled = true;
-          try {
-            const reference = await ProspectMedia.request(designApi, ProspectMedia.json({token: item.token}));
-            if (revision !== epoch) return;
-            const selected = ProspectMedia.values($('design-saved'));
-            const room = ProspectMedia.values($('references')).length + selected.length < 4;
-            if (room && !selected.includes(reference.id)) selected.push(reference.id);
-            await showDesignLibrary(selected);
-            if (revision !== epoch) return;
-            save.textContent = 'Référence enregistrée';
-            designNotice(room ? 'Référence enregistrée dans la bibliothèque.' :
-              'Référence enregistrée. Libérez une place pour l’utiliser dans ce projet.');
-          } catch (error) {
-            if (revision === epoch) {
-              designNotice(error.message);
-              save.disabled = false;
-            }
-          }
-        };
-        card.append(save);
-        $('design-results').append(card);
+      for (const item of results) $('design-results').append(referenceCard(item, item.thumbnail));
+      if (!batchId) {
+        designNotice('Aucune image trouvée.');
+        return;
       }
-      designNotice(results.length ? results.length + ' références trouvées.' : 'Aucune image trouvée.');
+      designNotice(results.length + ' références trouvées. Enregistrement dans la bibliothèque…');
+      while (revision === epoch) {
+        const batch = await ProspectMedia.request(designApi + '/imports/' + batchId);
+        if (revision !== epoch) return;
+        if (batch.status === 'completed') {
+          await showDesignLibrary(ProspectMedia.values($('design-saved')));
+          if (revision !== epoch) return;
+          const unavailable = batch.unavailable ? ' · ' + batch.unavailable + ' indisponibles' : '';
+          designNotice(batch.saved + ' références disponibles dans la bibliothèque' + unavailable + '.');
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     } catch (error) {
       if (revision === epoch) designNotice(error.message);
     } finally {

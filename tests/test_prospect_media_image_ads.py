@@ -468,7 +468,22 @@ def test_google_images_returns_all_unique_results_in_one_request(studio, monkeyp
                                json=lambda: {'images_results': results, 'serpapi_pagination': {'next': 'unused'}})
 
     monkeypatch.setattr(design_references.httpx, 'get', fake_search)
+    unavailable = results[10]['original']
+    monkeypatch.setattr(design_references, 'public_resource',
+                        lambda url, *_: b'' if url == unavailable else png())
     response = client.get('/api/design-references/search', params={'q': 'flyer beauté'})
     assert response.status_code == 200
     assert len(response.json()['results']) == 65
+    batch_id = response.json()['batch_id']
+    for _ in range(120):
+        batch = client.get('/api/design-references/imports/' + batch_id).json()
+        if batch['status'] == 'completed':
+            break
+        time.sleep(.05)
+    assert batch == {'status': 'completed', 'saved': 64, 'unavailable': 1}
+    references = client.get('/api/design-references').json()['references']
+    assert len(references) == 64
+    assert client.get(references[0]['url']).headers['content-type'] == 'image/png'
     assert len(calls) == 1
+    assert client.get('/api/leads/1/image-ads').json()['projects'] == []
+    assert client.get('/api/leads/2/image-ads').json()['projects'] == []
