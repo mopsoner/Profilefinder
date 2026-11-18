@@ -86,12 +86,100 @@
   const report = message => { $('status').textContent = message; };
   const payload = () => ({...Object.fromEntries(new FormData(form)),
     contact_icons: $('contact-icons').checked,
+    design_reference_ids: $('mode').value === 'ai' ? ProspectMedia.values($('design-saved')) : [],
     media_ids: ProspectMedia.values($('references')), logo_id: ProspectMedia.values($('logo'))[0] || null});
   function syncImageStyle() {
     const realPhoto = $('mode').value !== 'ai';
-    $('style-field').hidden = realPhoto;
+    $('style-field').hidden = $('design-library').hidden = realPhoto;
     $('style').disabled = realPhoto;
   }
+  const designApi = '/api/design-references';
+  const designNotice = text => { $('design-status').textContent = text; };
+
+  function referenceCard(item, url) {
+    const card = document.createElement('article');
+    const thumbnail = document.createElement('img');
+    thumbnail.alt = item.title;
+    thumbnail.referrerPolicy = 'no-referrer';
+    thumbnail.loading = 'lazy';
+    if (url) thumbnail.src = url;
+    const source = document.createElement('a');
+    source.href = item.source_url;
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    source.textContent = item.title + ' ↗';
+    if (url) card.append(thumbnail);
+    card.append(source);
+    return card;
+  }
+
+  async function showDesignLibrary(ids = []) {
+    const revision = epoch;
+    const {references, search_available: canSearch} = await ProspectMedia.request(designApi);
+    if (revision !== epoch) return;
+    $('design-search').disabled = $('design-query').disabled = !canSearch;
+    if (!canSearch) designNotice('Recherche indisponible. Définissez SERPAPI_API_KEY sur le serveur.');
+    $('design-saved').replaceChildren();
+    for (const item of references) {
+      const card = referenceCard(item, item.url);
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = item.id;
+      input.setAttribute('aria-label', 'Utiliser « ' + item.title + ' » comme référence');
+      input.checked = ids.includes(item.id);
+      label.append(input, ' Utiliser comme référence');
+      card.append(label);
+      $('design-saved').append(card);
+    }
+    if (!references.length) $('design-saved').textContent = 'Aucune référence enregistrée.';
+  }
+
+  async function searchDesigns() {
+    const query = $('design-query').value.trim();
+    if (query.length < 2) {
+      designNotice('Saisissez au moins deux caractères.');
+      return;
+    }
+    const revision = epoch;
+    $('design-search').disabled = true;
+    designNotice('Recherche en cours…');
+    $('design-results').replaceChildren();
+    try {
+      const {results, batch_id: batchId} = await ProspectMedia.request(
+        designApi + '/search?' + new URLSearchParams({q: query}));
+      if (revision !== epoch) return;
+      for (const item of results) $('design-results').append(referenceCard(item, item.thumbnail));
+      if (!batchId) {
+        designNotice('Aucune image trouvée.');
+        return;
+      }
+      designNotice(results.length + ' références trouvées. Enregistrement dans la bibliothèque…');
+      while (revision === epoch) {
+        const batch = await ProspectMedia.request(designApi + '/imports/' + batchId);
+        if (revision !== epoch) return;
+        if (batch.status === 'completed') {
+          await showDesignLibrary(ProspectMedia.values($('design-saved')));
+          if (revision !== epoch) return;
+          const unavailable = batch.unavailable ? ' · ' + batch.unavailable + ' indisponibles' : '';
+          designNotice(batch.saved + ' références disponibles dans la bibliothèque' + unavailable + '.');
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      if (revision === epoch) designNotice(error.message);
+    } finally {
+      if (revision === epoch) $('design-search').disabled = false;
+    }
+  }
+  $('design-search').onclick = searchDesigns;
+  $('design-query').onkeydown = event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (!$('design-search').disabled) searchDesigns();
+    }
+  };
   function schedulePreview() {
     syncActions();
     clearTimeout(previewTimer);
@@ -144,6 +232,9 @@
     currentProject = null;
     showVersions(null);
     $('preview-status').textContent = '';
+    $('design-results').replaceChildren();
+    $('design-saved').replaceChildren();
+    designNotice('');
     form.reset();
     syncImageStyle();
     syncHeadlinePlacement();
@@ -164,7 +255,7 @@
       const options = project?.options || {};
       const fields = {...prospectFields, contact_icons: !project, ...options, ...options.business};
       for (const [key, value] of Object.entries(fields)) {
-        if (['media_ids', 'logo_id', 'identity', 'business'].includes(key)) continue;
+        if (['media_ids', 'design_reference_ids', 'logo_id', 'identity', 'business'].includes(key)) continue;
         const field = form.elements.namedItem(key);
         if (field === $('contact-icons')) field.checked = value === true;
         else if (field instanceof HTMLElement) field.value = value;
@@ -172,6 +263,9 @@
       syncImageStyle();
       syncHeadlinePlacement();
       await Promise.all([
+        showDesignLibrary(options.design_reference_ids).catch(error => {
+          if (revision === epoch) designNotice(error.message);
+        }),
         ProspectMedia.mount($('references'), $('lead').value, {types: ['image'], distinct: true, ids: project?.options.media_ids}),
         ProspectMedia.mount($('logo'), $('lead').value, {types: ['image'], logos: true, name: 'logo_id',
           ids: project?.options.logo_id ? [project.options.logo_id] : []})

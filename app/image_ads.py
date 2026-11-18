@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from .ad_copy import CopyUnavailable, generate_copy, lead_facts, stored_json
 from .config import settings
 from .db import SessionLocal, get_db
+from .design_references import selected_design_references
 from .job_tracking import ACTIVE, finish_task, job_payload, start_task
 from .media import image_from_bytes, require_lead, selected_media
 from .models import ImageAd, ImageAdVersion, Job, Lead, LeadWebsite
@@ -88,6 +89,7 @@ class Composition(BaseModel):
     avoid: str = Field('', max_length=300)
     operator_instruction: str = Field('', max_length=1500)
     media_ids: list[str] = Field(default_factory=list, max_length=4)
+    design_reference_ids: list[str] = Field(default_factory=list, max_length=4)
     logo_id: str | None = None
     position: str = 'auto'
     fit: str = 'contain'
@@ -356,6 +358,7 @@ def compose_full_flyer(options, refs, logo, previous_flyer):
         'la typographie et les relations entre éléments. Les exemples de mise en page du formulaire '
         'sont des indications de départ. Lorsqu’une consigne vise une donnée précise, '
         'place l’élément demandé au contact de cette donnée dans le même groupe visuel. '
+        'Inspire-toi des références visuelles sans reprendre leurs textes ni leurs coordonnées. '
         'Recopie exactement les textes fournis. Omet les champs vides et n’invente aucune '
         'coordonnée ni affirmation commerciale. Utilise des marges généreuses pour garder tous '
         'les éléments à l’intérieur de l’image. Ne produis ni mockup ni texte explicatif.\n'
@@ -384,6 +387,8 @@ def run_image_job(identifier, task_id):
                 operation = {}
             action = operation.get('action', 'auto')
             refs = [media.content for media in selected_media(db, lead.id, options['media_ids'], ('image',))]
+            design_ids = options.get('design_reference_ids', [])
+            refs.extend(reference.content for reference in selected_design_references(db, design_ids))
             logo = selected_media(db, lead.id, [options['logo_id']], ('image',))[0].content if options['logo_id'] else None
             source = row
             if operation.get('source_version'):
@@ -419,7 +424,7 @@ def run_image_job(identifier, task_id):
                               'et évite les détails parasites. Le studio ajoute séparément le nom, le métier, '
                               'les coordonnées et le logo. Aucun texte, logo, cadre, filigrane ni pictogramme de coordonnées dans le visuel.\n' + prompt)
                     key = hashlib.sha256(json.dumps([prompt, options['format'], options['media_ids'],
-                                                    settings().openai_image_model]).encode()).hexdigest()
+                                                    settings().openai_image_model, *design_ids]).encode()).hexdigest()
                     if action != 'local' and (action in ('ai', 'variant') or row.background_key != key or not row.background):
                         task.stage, task.total_found = 'Génération du fond OpenAI', 25
                         db.commit()
@@ -609,6 +614,12 @@ def prepare_composition(db, lead_id, composition, identifier):
     selected_media(db, lead_id, composition.media_ids, ('image',), limit=4)
     if composition.action in ('full', 'full_variant') and composition.mode != 'ai':
         raise HTTPException(400, 'Le flyer complet nécessite le mode Création IA.')
+    design_ids = composition.design_reference_ids
+    if design_ids and composition.mode != 'ai':
+        raise HTTPException(400, 'Les références de design sont réservées à la Création IA.')
+    if len(composition.media_ids) + len(design_ids) > 4:
+        raise HTTPException(400, 'Choisissez au maximum quatre références au total.')
+    selected_design_references(db, design_ids)
     if composition.mode == 'photo' and len(composition.media_ids) != 1:
         raise HTTPException(400, 'Sélectionnez une photo pour le mode Photo réelle.')
     if composition.logo_id and composition.logo_id in composition.media_ids:
@@ -620,7 +631,7 @@ def prepare_composition(db, lead_id, composition, identifier):
             raise HTTPException(400, 'Choisissez un média de la catégorie Logo.')
     saved_options = json.loads(previous.options_json) if previous else {}
     business = {**flyer_business(lead), **saved_options.get('business', {})}
-    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', 'action', 'use_previous_flyer', 'contact_icons', *business})
+    options = composition.model_dump(exclude={'operator_instruction', 'image_style', 'visual_style', 'action', 'use_previous_flyer', 'contact_icons', 'design_reference_ids', *business})
     name = composition.display_name
     options['display_name'] = saved_options.get('display_name', lead.name) if name is None else ' '.join(name.split())
     for field in business:
@@ -628,6 +639,8 @@ def prepare_composition(db, lead_id, composition, identifier):
         if value is not None:
             business[field] = ' '.join(value.split())
     options['business'] = business
+    if design_ids:
+        options['design_reference_ids'] = design_ids
     if composition.mode == 'ai':
         options['image_style'] = composition.image_style or 'flyer'
     if composition.action in ('full', 'full_variant'):

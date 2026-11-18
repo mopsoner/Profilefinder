@@ -129,3 +129,12 @@ class ImageAdVersion(Base):
     background: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     png: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DesignReference(Base):
+    __tablename__ = 'design_references'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    source_url: Mapped[str] = mapped_column(Text)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
